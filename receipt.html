@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>家偉文理短期補習班 · 收據產生器</title>
+<title>家偉補習班 · 收據產生器</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="sb.js"></script>
 <script src="auth.js"></script>
@@ -135,7 +135,8 @@ button.ghost {
   color: var(--muted);
   margin-bottom: 4px;
 }
-.rcpt-fld input {
+.rcpt-fld input,
+.rcpt-fld select {
   width: 100%;
   box-sizing: border-box;
   font: inherit;
@@ -146,7 +147,11 @@ button.ghost {
   border-radius: 6px;
   background: #fff;
 }
-.rcpt-fld input:focus {
+.rcpt-fld select {
+  cursor: pointer;
+}
+.rcpt-fld input:focus,
+.rcpt-fld select:focus {
   outline: none;
   border-color: var(--brand);
 }
@@ -292,7 +297,9 @@ button.ghost {
   position: absolute;
   left: 77.7pt;
   top: 0;
-  font-size: 24pt;
+  /* per-branch: 新竹's 11-char name is 23pt, the 9-char names 24pt (their own
+     PDFs do the same). Set on .rcpt-paper by the editor. */
+  font-size: var(--rc-title-size, 24pt);
   font-weight: 700;
   line-height: 26pt;
   white-space: nowrap;
@@ -533,6 +540,12 @@ ol.rc-rules li {
   </div>
   <div class="rcpt-work">
     <div class="rcpt-editor" id="rcpt-form">
+      <div class="rcpt-sec">分校</div>
+      <label class="rcpt-fld"><span>分校</span>
+        <select id="f-loc"><option value="toufen">頭份 · 家偉文理短期補習班</option><option value="hsinchu">新竹 · 家偉文理技藝短期補習班</option><option value="zhunan-jiawei">竹南 · 家緯文理短期補習班</option><option value="zhunan-jiawei2">竹南 · 佳偉文理短期補習班</option></select>
+        <em id="f-locinfo"></em>
+      </label>
+
       <div class="rcpt-sec">收據</div>
       <label class="rcpt-fld"><span>收據號碼</span>
         <div class="rcpt-num-input">
@@ -565,12 +578,11 @@ ol.rc-rules li {
     <div class="rcpt-preview-wrap">
       <div class="rcpt-paper">
 <section class="rc">
-  <div class="rc-county">苗栗縣
-私 立</div>
-  <div class="rc-title">家偉文理短期補習班</div>
+  <div class="rc-county" data-f="county"></div>
+  <div class="rc-title" data-f="schoolName"></div>
   <div class="rc-word">收 據</div>
-  <div class="rc-addr">苗栗縣頭份市建國路52號</div>
-  <div class="rc-lic">府教社字第1030120216號</div>
+  <div class="rc-addr" data-f="address"></div>
+  <div class="rc-lic" data-f="license"></div>
   <div class="rc-num" data-f="num"></div>
   <div class="rc-field f-time"><span class="rc-k">上課時間：</span><span class="rc-v" data-f="classTime"></span></div>
   <div class="rc-field f-name"><span class="rc-k">學生姓名：</span><span class="rc-v" data-f="name"></span></div>
@@ -578,7 +590,7 @@ ol.rc-rules li {
     <thead><tr>
       <th class="rc-c-item">項 目</th><th class="rc-c-amt">金 額</th><th class="rc-c-note">備 註</th>
     </tr></thead>
-    <tbody><tr><td class="rc-c-item" data-f="item0"></td><td class="rc-c-amt" data-f="amt0"></td><td class="rc-c-note" rowspan="4"><div class="rc-rules-lead">退費說明：學生繳納費用後離班者，補習班應依下列規定辦理退費。</div><ol class="rc-rules"><li>學生於實際上課日期第二天上課前離班者，扣除實際已繳交費用30%，之餘額全部退還。</li><li>學生實際上課期間未逾當期1/3者，應退還已繳全期費用之半數；已逾當期1/3者，所收取之當期費用得全數不予退還。</li><li>補習班所收取之代辦費應全額退還，但已購買成品者發給成品。</li><li>本記載事項除另有預定外，皆依苗栗縣政府訂定之短期補習班設立及管理規則之相關規定辦理。</li></ol></td></tr><tr><td class="rc-c-item" data-f="item1"></td><td class="rc-c-amt" data-f="amt1"></td></tr><tr><td class="rc-c-item" data-f="item2"></td><td class="rc-c-amt" data-f="amt2"></td></tr><tr><td class="rc-c-item" data-f="item3"></td><td class="rc-c-amt" data-f="amt3"></td></tr>
+    <tbody><tr><td class="rc-c-item" data-f="item0"></td><td class="rc-c-amt" data-f="amt0"></td><td class="rc-c-note" rowspan="4"><div class="rc-rules-lead">退費說明：學生繳納費用後離班者，補習班應依下列規定辦理退費。</div><ol class="rc-rules"><li>學生於實際上課日期第二天上課前離班者，扣除實際已繳交費用30%，之餘額全部退還。</li><li>學生實際上課期間未逾當期1/3者，應退還已繳全期費用之半數；已逾當期1/3者，所收取之當期費用得全數不予退還。</li><li>補習班所收取之代辦費應全額退還，但已購買成品者發給成品。</li><li>本記載事項除另有預定外，皆依<span data-f="regulator"></span>政府訂定之短期補習班設立及管理規則之相關規定辦理。</li></ol></td></tr><tr><td class="rc-c-item" data-f="item1"></td><td class="rc-c-amt" data-f="amt1"></td></tr><tr><td class="rc-c-item" data-f="item2"></td><td class="rc-c-amt" data-f="amt2"></td></tr><tr><td class="rc-c-item" data-f="item3"></td><td class="rc-c-amt" data-f="amt3"></td></tr>
       <tr class="rc-total">
         <td colspan="2" class="rc-total-k">合計實收金額</td>
         <td class="rc-total-v"><div class="rc-total-inner"><span class="rc-total-num" data-f="total"></span><span class="rc-total-unit">元整</span></div></td>
@@ -588,12 +600,11 @@ ol.rc-rules li {
   <div class="rc-stub">補習班存根聯</div>
   <div class="rc-paydate"><span class="rc-k">繳費日期：</span><span class="rc-v" data-f="payDate"></span></div>
 </section><div class="rcpt-cut"></div><section class="rc">
-  <div class="rc-county">苗栗縣
-私 立</div>
-  <div class="rc-title">家偉文理短期補習班</div>
+  <div class="rc-county" data-f="county"></div>
+  <div class="rc-title" data-f="schoolName"></div>
   <div class="rc-word">收 據</div>
-  <div class="rc-addr">苗栗縣頭份市建國路52號</div>
-  <div class="rc-lic">府教社字第1030120216號</div>
+  <div class="rc-addr" data-f="address"></div>
+  <div class="rc-lic" data-f="license"></div>
   <div class="rc-num" data-f="num"></div>
   <div class="rc-field f-time"><span class="rc-k">上課時間：</span><span class="rc-v" data-f="classTime"></span></div>
   <div class="rc-field f-name"><span class="rc-k">學生姓名：</span><span class="rc-v" data-f="name"></span></div>
@@ -601,7 +612,7 @@ ol.rc-rules li {
     <thead><tr>
       <th class="rc-c-item">項 目</th><th class="rc-c-amt">金 額</th><th class="rc-c-note">備 註</th>
     </tr></thead>
-    <tbody><tr><td class="rc-c-item" data-f="item0"></td><td class="rc-c-amt" data-f="amt0"></td><td class="rc-c-note" rowspan="4"><div class="rc-rules-lead">退費說明：學生繳納費用後離班者，補習班應依下列規定辦理退費。</div><ol class="rc-rules"><li>學生於實際上課日期第二天上課前離班者，扣除實際已繳交費用30%，之餘額全部退還。</li><li>學生實際上課期間未逾當期1/3者，應退還已繳全期費用之半數；已逾當期1/3者，所收取之當期費用得全數不予退還。</li><li>補習班所收取之代辦費應全額退還，但已購買成品者發給成品。</li><li>本記載事項除另有預定外，皆依苗栗縣政府訂定之短期補習班設立及管理規則之相關規定辦理。</li></ol></td></tr><tr><td class="rc-c-item" data-f="item1"></td><td class="rc-c-amt" data-f="amt1"></td></tr><tr><td class="rc-c-item" data-f="item2"></td><td class="rc-c-amt" data-f="amt2"></td></tr><tr><td class="rc-c-item" data-f="item3"></td><td class="rc-c-amt" data-f="amt3"></td></tr>
+    <tbody><tr><td class="rc-c-item" data-f="item0"></td><td class="rc-c-amt" data-f="amt0"></td><td class="rc-c-note" rowspan="4"><div class="rc-rules-lead">退費說明：學生繳納費用後離班者，補習班應依下列規定辦理退費。</div><ol class="rc-rules"><li>學生於實際上課日期第二天上課前離班者，扣除實際已繳交費用30%，之餘額全部退還。</li><li>學生實際上課期間未逾當期1/3者，應退還已繳全期費用之半數；已逾當期1/3者，所收取之當期費用得全數不予退還。</li><li>補習班所收取之代辦費應全額退還，但已購買成品者發給成品。</li><li>本記載事項除另有預定外，皆依<span data-f="regulator"></span>政府訂定之短期補習班設立及管理規則之相關規定辦理。</li></ol></td></tr><tr><td class="rc-c-item" data-f="item1"></td><td class="rc-c-amt" data-f="amt1"></td></tr><tr><td class="rc-c-item" data-f="item2"></td><td class="rc-c-amt" data-f="amt2"></td></tr><tr><td class="rc-c-item" data-f="item3"></td><td class="rc-c-amt" data-f="amt3"></td></tr>
       <tr class="rc-total">
         <td colspan="2" class="rc-total-k">合計實收金額</td>
         <td class="rc-total-v"><div class="rc-total-inner"><span class="rc-total-num" data-f="total"></span><span class="rc-total-unit">元整</span></div></td>
@@ -618,6 +629,7 @@ ol.rc-rules li {
 <script>
 
 const ROWS = 4;
+const LOCATIONS = [{"id": "toufen", "label": "頭份 · 家偉文理短期補習班", "county": "苗栗縣", "kind": "私 立", "schoolName": "家偉文理短期補習班", "titleSize": 24, "address": "苗栗縣頭份市建國路52號", "license": "府教社字第1030120216號", "regulator": "苗栗縣"}, {"id": "hsinchu", "label": "新竹 · 家偉文理技藝短期補習班", "county": "新竹市", "kind": "私 立", "schoolName": "家偉文理技藝短期補習班", "titleSize": 23, "address": "新竹市關新路18號", "license": "府教社字第1100158327號", "regulator": "新竹市"}, {"id": "zhunan-jiawei", "label": "竹南 · 家緯文理短期補習班", "county": "苗栗縣", "kind": "私 立", "schoolName": "家緯文理短期補習班", "titleSize": 24, "address": "苗栗縣竹南鎮中正路383號", "license": "府教社字第1070246810號", "regulator": "苗栗縣"}, {"id": "zhunan-jiawei2", "label": "竹南 · 佳偉文理短期補習班", "county": "苗栗縣", "kind": "私 立", "schoolName": "佳偉文理短期補習班", "titleSize": 24, "address": "苗栗縣竹南鎮中正路185號", "license": "府教社字第B1030114846號", "regulator": "苗栗縣"}];
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
@@ -708,6 +720,16 @@ function capitalAmount(value) {
 function put(key, text) { $$('[data-f="' + key + '"]').forEach((el) => (el.textContent = text)); }
 
 function render() {
+  const loc = LOCATIONS.find((l) => l.id === $("#f-loc").value) || LOCATIONS[0];
+  put("county", loc.county + "\n" + loc.kind);
+  put("schoolName", loc.schoolName);
+  put("address", loc.address);
+  put("license", loc.license);
+  put("regulator", loc.regulator);   // the {regulator} token in 退費說明 rule 4
+  // 新竹's 11-char name needs 23pt where the 9-char names take 24
+  $(".rcpt-paper").style.setProperty("--rc-title-size", loc.titleSize + "pt");
+  $("#f-locinfo").textContent = loc.address + " · " + loc.license;
+
   put("num", receiptNo($("#f-num").value));
   // "115年7月1日 至 115年9月30日" — and just the one date if only one is filled.
   const period = [rocText($("#f-classStart").value), rocText($("#f-classEnd").value)]
@@ -738,6 +760,7 @@ function render() {
 
 function reset() {
   if (!confirm("清空這張收據，重新開始？")) return;
+  // 分校 deliberately survives a clear — the front desk stays at one branch.
   $$("#rcpt-form input").forEach((el) => (el.value = ""));
   $("#f-payDate").value = todayROC();
   render();
@@ -746,6 +769,7 @@ function reset() {
 function init() {
   $("#f-payDate").value = todayROC();
   $$("input").forEach((el) => el.addEventListener("input", render));
+  $("#f-loc").addEventListener("change", render);
   $("#btn-clear").addEventListener("click", reset);
   $("#btn-print").addEventListener("click", () => window.print());
   render();
