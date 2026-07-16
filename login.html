@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>家偉補習班 · 管理後台登入</title>
+<!-- The sign-in surface. Deliberately does NOT load auth.js (that gate would
+     bounce this page straight back to itself). -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sb.js"></script>
+<style>
+:root {
+  /* Brand palette (chiawei CLAUDE.md): 寶藍 primary, 黃/橘 accents */
+  --brand: #2547c7;
+  --bg: #f6f7fb;
+  --surface: #fff;
+  --ink: #1b1f2a;
+  --muted: #6b7280;
+  --line: #e3e6ee;
+  --danger: #c0362c;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: var(--ink);
+  background: var(--bg);
+  font-family: "PingFang TC", "Noto Sans TC", system-ui, -apple-system, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.card {
+  width: 100%;
+  max-width: 360px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 28px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  box-shadow: 0 6px 24px rgba(37, 71, 199, 0.08);
+}
+h1 { font-size: 20px; margin: 0; color: var(--brand); }
+.sub { font-size: 13px; color: var(--muted); margin: 0; }
+label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--muted); }
+input {
+  font: inherit;
+  font-size: 15px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  background: #fff;
+}
+input:focus { outline: 2px solid var(--brand); border-color: var(--brand); }
+button {
+  font: inherit;
+  cursor: pointer;
+  border: none;
+  border-radius: 7px;
+  padding: 10px 14px;
+  background: var(--brand);
+  color: #fff;
+  font-weight: 600;
+}
+button:disabled { opacity: 0.6; cursor: default; }
+.error { color: var(--danger); font-size: 13px; margin: 0; min-height: 1.2em; }
+</style>
+</head>
+<body>
+<form class="card" id="f">
+  <h1>家偉補習班 · 管理後台</h1>
+  <p class="sub">請以管理者帳號登入 · Owner / Admin sign-in</p>
+  <label>帳號 Email
+    <input type="email" id="email" autocomplete="username" required>
+  </label>
+  <label>密碼 Password
+    <input type="password" id="password" autocomplete="current-password" required>
+  </label>
+  <button type="submit" id="go">登入 Sign in</button>
+  <p class="error" id="err"></p>
+</form>
+<script>
+const err = document.getElementById("err");
+const go = document.getElementById("go");
+
+// Explain why the gate bounced them back here, then clear the flag so the
+// message does not persist across a later, clean visit.
+const rejection = sessionStorage.getItem("auth_rejection");
+if (rejection === "not_invited") {
+  err.textContent = "此帳號尚未開通，請聯絡管理者。";
+} else if (rejection === "forbidden") {
+  err.textContent = "此帳號沒有收據權限（僅限 owner / admin）。";
+}
+sessionStorage.removeItem("auth_rejection");
+
+// Already signed in? Skip the form.
+(async () => {
+  const { data } = await window.sb.auth.getSession();
+  if (data && data.session) location.replace("receipt.html");
+})();
+
+document.getElementById("f").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  err.textContent = "";
+  go.disabled = true;
+  const { error } = await window.sb.auth.signInWithPassword({
+    email: document.getElementById("email").value.trim(),
+    password: document.getElementById("password").value,
+  });
+  if (error) {
+    err.textContent = "登入失敗：帳號或密碼錯誤。";
+    go.disabled = false;
+    return;
+  }
+  location.replace("receipt.html");
+});
+</script>
+</body>
+</html>
