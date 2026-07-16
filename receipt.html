@@ -249,17 +249,70 @@ button.ghost {
   color: var(--muted);
 }
 
-.rcpt-line {
+/* two fields side by side (收據號碼 + 繳費日期) */
+.rcpt-row {
   display: flex;
   gap: 8px;
 }
-.rcpt-line .rcpt-fld:first-child {
+.rcpt-row > .rcpt-fld {
   flex: 1;
   min-width: 0;
 }
-.rcpt-line .rcpt-fld:last-child {
-  width: 96px;
+
+/* 項目 rows: added on demand, up to the paper's 4 slots */
+.rcpt-line {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end; /* line the ✕ up with the inputs, not their labels */
+  margin-bottom: 10px;
+}
+.rcpt-line > .rcpt-fld {
+  margin-bottom: 0;
+}
+.rcpt-line > .rcpt-fld:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.rcpt-fld-amt {
+  width: 84px;
   flex-shrink: 0;
+}
+.rcpt-rm {
+  flex-shrink: 0;
+  width: 30px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1;
+}
+.rcpt-rm:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.rcpt-add {
+  width: 100%;
+  padding: 8px;
+  margin-bottom: 12px;
+  background: transparent;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  color: var(--brand);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.rcpt-add:hover:not(:disabled) {
+  border-color: var(--brand);
+  background: #f4f6fd;
+}
+.rcpt-add:disabled {
+  color: var(--muted);
+  opacity: 0.7;
+  cursor: default;
 }
 .rcpt-total-note {
   font-size: 12px;
@@ -679,13 +732,8 @@ ol.rc-rules li {
       </label>
 
       <div class="rcpt-sec">收據</div>
-      <label class="rcpt-fld"><span>收據號碼</span>
-        <div class="rcpt-num-input">
-          <span class="rcpt-num-prefix">000</span>
-          <input id="f-num" placeholder="95" inputmode="numeric">
-        </div>
-        <em>接續紙本收據簿的號碼，印在右上角紅字。</em>
-      </label>
+      <label class="rcpt-fld"><span>學生姓名</span>
+        <input id="f-name" placeholder="王小明"></label>
       <label class="rcpt-fld"><span>上課時間</span>
         <div class="rcpt-daterange">
           <input id="f-classStart" placeholder="115/7/1" inputmode="numeric">
@@ -694,15 +742,23 @@ ol.rc-rules li {
         </div>
         <em>民國年/月/日。印出：<span id="f-period">—</span></em>
       </label>
-      <label class="rcpt-fld"><span>學生姓名</span>
-        <input id="f-name" placeholder="王小明"></label>
-      <label class="rcpt-fld"><span>繳費日期</span>
-        <input id="f-payDate" placeholder="115/7/16" inputmode="numeric">
-        <em>民國年/月/日。印出：<span id="f-roc">—</span></em>
-      </label>
+      <div class="rcpt-row">
+        <label class="rcpt-fld"><span>收據號碼</span>
+          <div class="rcpt-num-input">
+            <span class="rcpt-num-prefix">000</span>
+            <input id="f-num" placeholder="95" inputmode="numeric">
+          </div>
+          <em>印出：<span id="f-no">—</span></em>
+        </label>
+        <label class="rcpt-fld"><span>繳費日期</span>
+          <input id="f-payDate" placeholder="115/7/16" inputmode="numeric">
+          <em>印出：<span id="f-roc">—</span></em>
+        </label>
+      </div>
 
       <div class="rcpt-sec">項目</div>
-      <div class="rcpt-line"><label class="rcpt-fld"><span>項目 1</span><input data-k="item" placeholder="學費"></label><label class="rcpt-fld"><span>金額</span><input data-k="amount" inputmode="numeric" placeholder="10200"></label></div><div class="rcpt-line"><label class="rcpt-fld"><span>項目 2</span><input data-k="item" placeholder="（空白則不印）"></label><label class="rcpt-fld"><span>金額</span><input data-k="amount" inputmode="numeric" placeholder=""></label></div><div class="rcpt-line"><label class="rcpt-fld"><span>項目 3</span><input data-k="item" placeholder="（空白則不印）"></label><label class="rcpt-fld"><span>金額</span><input data-k="amount" inputmode="numeric" placeholder=""></label></div><div class="rcpt-line"><label class="rcpt-fld"><span>項目 4</span><input data-k="item" placeholder="（空白則不印）"></label><label class="rcpt-fld"><span>金額</span><input data-k="amount" inputmode="numeric" placeholder=""></label></div>
+      <div id="li-list"></div>
+      <button type="button" class="rcpt-add" id="btn-add">＋ 新增項目</button>
       <div class="rcpt-total-note">合計實收金額 <b id="f-total">0</b> 元整（自動加總）<br>
         收據上印大寫：<span class="cap" id="f-cap">零</span></div>
     </div>
@@ -871,9 +927,11 @@ function render() {
   put("payDate", rocText($("#f-payDate").value));
 
   let total = 0;
-  $$(".rcpt-line").forEach((row, i) => {
-    const item = $('[data-k="item"]', row).value;
-    const amt = $('[data-k="amount"]', row).value;
+  const rows = $$(".rcpt-line");
+  for (let i = 0; i < ROWS; i++) {
+    const row = rows[i];
+    const item = row ? $('[data-k="item"]', row).value : "";
+    const amt = row ? $('[data-k="amount"]', row).value : "";
     total += amountValue(amt);
     put("item" + i, item);
     put("amt" + i, formatAmount(amt));
@@ -881,13 +939,47 @@ function render() {
     // (mirrors ITEM_LONG_CHARS in ReceiptEditor.tsx)
     $$('[data-f="item' + i + '"]').forEach((el) =>
       el.classList.toggle("long", item.length > 5));
-  });
+  }
   // 合計實收金額 prints 大寫 on the real receipt, never digits.
   put("total", total > 0 ? capitalAmount(total) : "");
   $("#f-total").textContent = total.toLocaleString("en-US");
   $("#f-cap").textContent = capitalAmount(total);
   $("#f-period").textContent = period || "—";
+  $("#f-no").textContent = receiptNo($("#f-num").value) || "—";
   $("#f-roc").textContent = rocText($("#f-payDate").value) || "—";
+}
+
+/** One 項目 row. Mirrors the .rcpt-line block in ReceiptEditor.tsx. */
+function lineRowHtml(i) {
+  return '<div class="rcpt-line">' +
+    '<label class="rcpt-fld"><span>項目 ' + (i + 1) + '</span>' +
+      '<input data-k="item" placeholder="' + (i === 0 ? "學費" : "") + '"></label>' +
+    '<label class="rcpt-fld rcpt-fld-amt"><span>金額</span>' +
+      '<input data-k="amount" inputmode="numeric" placeholder="' + (i === 0 ? "10200" : "") + '"></label>' +
+    '<button type="button" class="rcpt-rm" title="移除這一列">✕</button>' +
+  '</div>';
+}
+
+/** Renumber the 項目 N labels, hide ✕ when only one row is left, and cap 新增
+ *  at ROWS — the printed table has exactly that many slots. */
+function syncLines() {
+  const rows = $$(".rcpt-line");
+  rows.forEach((row, i) => {
+    $("span", row).textContent = "項目 " + (i + 1);
+    const rm = $(".rcpt-rm", row);
+    rm.style.display = rows.length > 1 ? "" : "none";
+  });
+  const add = $("#btn-add");
+  add.disabled = rows.length >= ROWS;
+  add.textContent = add.disabled ? "最多 " + ROWS + " 個項目" : "＋ 新增項目";
+  render();
+}
+
+function addLine() {
+  const rows = $$(".rcpt-line");
+  if (rows.length >= ROWS) return;
+  $("#li-list").insertAdjacentHTML("beforeend", lineRowHtml(rows.length));
+  syncLines();
 }
 
 function reset() {
@@ -895,16 +987,27 @@ function reset() {
   // 分校 deliberately survives a clear — the front desk stays at one branch.
   $$("#rcpt-form input").forEach((el) => (el.value = ""));
   $("#f-payDate").value = todayROC();
-  render();
+  $("#li-list").innerHTML = lineRowHtml(0);
+  syncLines();
 }
 
 function init() {
   $("#f-payDate").value = todayROC();
-  $$("input").forEach((el) => el.addEventListener("input", render));
+  $("#li-list").innerHTML = lineRowHtml(0);
+  // delegated: 項目 rows come and go, so bind on the list, not each input
+  $("#li-list").addEventListener("input", render);
+  $("#li-list").addEventListener("click", (e) => {
+    const rm = e.target.closest(".rcpt-rm");
+    if (!rm) return;
+    if ($$(".rcpt-line").length > 1) rm.closest(".rcpt-line").remove();
+    syncLines();
+  });
+  $("#btn-add").addEventListener("click", addLine);
+  $$("#rcpt-form input").forEach((el) => el.addEventListener("input", render));
   $("#f-loc").addEventListener("change", render);
   $("#btn-clear").addEventListener("click", reset);
   $("#btn-print").addEventListener("click", () => window.print());
-  render();
+  syncLines();
 }
 
 (async () => {
