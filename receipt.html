@@ -56,9 +56,21 @@ button.ghost {
 /* ============================================================
    收據產生器 (/app/receipts)
    A print-only tool: the form on the left edits the live .rcpt-paper on the
-   right, and the browser's Print / Save-as-PDF reproduces that paper exactly.
-   Nothing is persisted. The .rc-* block is the receipt document itself —
-   keep it visually faithful to the school's printed pad.
+   right, and Print / Save-as-PDF reproduces that paper exactly. Nothing is
+   persisted.
+
+   The .rc-* block is the receipt document, and its geometry is COPIED FROM THE
+   SCHOOL'S REAL RECEIPT (蘇侑緹 / 收據 000095), measured out of that PDF:
+     · content block 428pt wide; table cols 項目 71 / 金額 75 / 備註 282pt;
+       rows 24pt · title 24pt · 苗栗縣/私立 13pt · labels+values 11pt ·
+       收據號碼 18pt · 退費說明 9pt · a long 項目 shrinks to 7pt.
+   Everything is expressed in pt so those numbers stay literal. The source PDF
+   is US Letter (a Google Docs default); we print A4 (Taiwan) — the block is a
+   fixed width, so only the margins differ.
+
+   Each .rc lays its parts out ABSOLUTELY at the measured coordinates. That is
+   deliberate: the positions are data copied from the PDF, and flow layout would
+   only re-derive them approximately.
    ============================================================ */
 
 .rcpt-bar {
@@ -171,7 +183,6 @@ button.ghost {
 .rcpt-num-input input:focus {
   outline: none;
 }
-/* 項目 rows: item name (wide) + amount (narrow), side by side. */
 .rcpt-line {
   display: flex;
   gap: 8px;
@@ -190,10 +201,16 @@ button.ghost {
   padding: 9px 10px;
   border-radius: 6px;
   background: var(--bg);
+  line-height: 1.6;
 }
 .rcpt-total-note b {
   color: var(--ink);
   font-size: 14px;
+}
+/* the 大寫 echo — what will actually print in 合計實收金額 */
+.rcpt-total-note .cap {
+  color: var(--brand);
+  font-weight: 700;
 }
 
 /* --- 預覽 --- */
@@ -203,7 +220,7 @@ button.ghost {
   padding: 24px;
   display: flex;
   align-items: flex-start;
-  /* the paper is a fixed 794px (A4); editor + paper + padding needs ~1182px, so
+  /* the paper is a fixed A4 width; editor + paper + padding needs ~1140px, so
      on a narrower screen scroll it rather than clipping the sheet. Centring is
      done with the paper's own auto margins, NOT justify-content:center — the
      latter makes the overflowing left edge unreachable when scrolled. */
@@ -212,164 +229,235 @@ button.ghost {
 
 /* === 收據本體 (也是列印版面) === */
 .rcpt-paper {
-  width: 794px; /* A4 at 96dpi */
-  min-height: 1123px;
+  width: 210mm; /* A4 */
+  min-height: 297mm;
   flex-shrink: 0;
   margin: 0 auto; /* centres in .rcpt-preview-wrap; collapses to 0 when scrolling */
   box-sizing: border-box;
-  padding: 40px 48px;
+  /* 112.7pt top margin + the 428pt block centred on the sheet — both measured
+     off the real receipt. */
+  padding: 112.7pt 0 0;
   background: #fff;
   color: #000;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.14);
   display: flex;
   flex-direction: column;
+  align-items: center;
+  font-family: "PingFang TC", "Noto Sans TC", "Heiti TC", sans-serif;
 }
-/* the two copies split the sheet; the cut line lands mid-page */
-.rcpt-paper .rc {
-  flex: 1;
+
+/* One 聯. Fixed height + absolutely positioned parts at measured offsets.
+   Copy pitch on the real receipt is 330.7pt: 277pt of body, then the gap. */
+.rc {
+  position: relative;
+  width: 428pt;
+  height: 277pt;
+  flex-shrink: 0;
 }
 .rcpt-cut {
+  width: 422pt;
   border-top: 1px solid #999;
-  margin: 22px 0;
+  /* lands at the measured cut line (PDF y=416 → 26.6pt below the 聯) */
+  margin: 26.6pt 0 27.1pt;
   flex-shrink: 0;
 }
 
-.rc-head {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
+/* --- head: 苗栗縣/私立 · 家偉文理短期補習班 · 收 據 --- */
 .rc-county {
-  display: flex;
-  flex-direction: column;
-  font-size: 13px;
+  position: absolute;
+  left: 5.4pt;
+  top: 0;
+  font-size: 13pt;
   font-weight: 700;
-  line-height: 1.3;
-  flex-shrink: 0;
+  line-height: 15.1pt;
+  white-space: pre;
 }
 .rc-title {
-  flex: 1;
-  text-align: center;
-  font-size: 27px;
+  position: absolute;
+  left: 77.7pt;
+  top: 0;
+  font-size: 24pt;
   font-weight: 700;
-  letter-spacing: 1px;
+  line-height: 26pt;
+  white-space: nowrap;
 }
 .rc-word {
-  flex-shrink: 0;
-  font-size: 24px;
+  position: absolute;
+  left: 359.8pt;
+  top: 0;
+  /* 25pt, not 24: the run's space glyphs measure ArialMT 25.07 in the PDF,
+     while the title's measure Arial-BoldMT 24.07. */
+  font-size: 25pt;
   font-weight: 700;
-  letter-spacing: 3px;
+  line-height: 26pt;
   text-decoration: underline;
-  text-underline-offset: 4px;
+  text-underline-offset: 3pt;
+  /* 收 據 spans 61.4pt on the real receipt; 25pt + a plain space gives 58.3 */
+  letter-spacing: 1.55pt;
+  white-space: pre;
 }
-.rc-sub {
-  display: flex;
-  gap: 40px;
-  margin-top: 10px;
-  font-size: 13px;
+
+/* --- address + 立案字號 --- */
+.rc-addr {
+  position: absolute;
+  left: 5.4pt;
+  top: 37.5pt;
+  font-size: 11pt;
+  line-height: 13pt;
+  white-space: nowrap;
 }
-/* 收據號碼 — red, right-aligned, on its own line under 收 據 */
+.rc-lic {
+  position: absolute;
+  left: 163.2pt;
+  top: 37.5pt;
+  font-size: 11pt;
+  line-height: 13pt;
+  white-space: nowrap;
+}
+/* 收據號碼 — red, right-aligned under 收 據 */
 .rc-num {
-  text-align: right;
-  margin-top: 4px;
-  font-size: 19px;
-  font-weight: 700;
+  position: absolute;
+  right: 5.9pt;
+  top: 45.5pt;
+  font-size: 18pt;
+  font-weight: 400;
+  line-height: 20pt;
   color: #e8110f;
-  letter-spacing: 1px;
-  min-height: 24px;
+  font-family: Arial, Helvetica, sans-serif;
+  /* No letter-spacing: per-char data from the real receipt shows every digit
+     advancing exactly 10.04pt (18pt Arial), 453.9→514.1. An earlier span-level
+     read looked 17pt wider only because the span began with a space glyph. */
+  white-space: nowrap;
 }
-.rc-fields {
-  margin-top: 6px;
-}
+
+/* --- 上課時間 / 學生姓名 --- */
 .rc-field {
-  display: flex;
-  gap: 16px;
-  margin-bottom: 7px;
-  font-size: 14px;
+  position: absolute;
+  left: 5.3pt;
+  font-size: 11pt;
+  line-height: 13pt;
+  white-space: nowrap;
+}
+.rc-field.f-time {
+  top: 63.2pt;
+}
+.rc-field.f-name {
+  top: 89.6pt;
 }
 .rc-k {
   font-weight: 700;
-  flex-shrink: 0;
 }
 .rc-v {
+  display: inline-block;
+  margin-left: 23.6pt; /* value column starts at 76.1pt */
   font-weight: 400;
 }
 
+/* --- the table --- */
 .rc-table {
-  width: 100%;
+  position: absolute;
+  left: 0;
+  top: 106.3pt;
+  width: 428pt;
   border-collapse: collapse;
-  border: 1.5px solid #000;
-  margin-top: 4px;
+  table-layout: fixed;
 }
 .rc-table th,
 .rc-table td {
   border: 1px solid #000;
-  padding: 6px 8px;
-  font-size: 13px;
+  font-size: 11pt;
+  font-weight: 400;
+  padding: 0 3pt;
 }
 .rc-table th {
+  height: 24pt;
   text-align: center;
   font-weight: 700;
-  letter-spacing: 3px;
-  padding: 7px 8px;
+  white-space: pre;
 }
 .rc-table .rc-c-item {
-  width: 104px;
+  width: 71pt;
 }
 .rc-table .rc-c-amt {
-  width: 92px;
+  width: 75pt;
 }
+/* 項目 + 金額 both centre on the real receipt */
 .rc-table tbody .rc-c-item,
 .rc-table tbody .rc-c-amt {
-  height: 26px;
+  height: 24pt;
+  text-align: center;
 }
-.rc-table tbody .rc-c-amt {
-  text-align: right;
+/* a long 項目 (代收教材費 (一學期)) shrinks to fit rather than wrapping */
+.rc-table tbody .rc-c-item.long {
+  font-size: 7pt;
 }
 .rc-table .rc-c-note {
   vertical-align: top;
+  padding: 2pt 4pt;
 }
 .rc-rules-lead {
-  font-size: 11.5px;
-  line-height: 1.5;
+  font-size: 9pt;
+  line-height: 10.4pt;
 }
 ol.rc-rules {
-  margin: 1px 0 0;
-  padding-left: 20px;
+  margin: 0;
+  padding-left: 18.5pt;
+  font-size: 9pt;
 }
 ol.rc-rules li {
-  font-size: 11.5px;
-  line-height: 1.45;
-  margin-bottom: 1px;
+  font-size: 9pt;
+  line-height: 10.4pt;
+  padding-left: 2pt;
 }
+/* 合 計 實 收 金 額 — letter-spaced to 16pt/char on the real receipt */
 .rc-total-k {
   text-align: center;
   font-weight: 700;
-  letter-spacing: 4px;
+  letter-spacing: 6pt;
+  text-indent: 6pt; /* re-centre: letter-spacing also pads after the last glyph */
 }
-/* {totalPrice} centred in the cell, 元整 pinned right — as on the paper form */
-.rc-total-v {
+/* 大寫 centred in the cell, 元整 pinned right — as on the real receipt.
+   A flex row, NOT absolute children: a <td> is an unreliable containing block
+   for position:absolute, and the parts escaped the row. */
+/* `td.` is load-bearing: plain `.rc-total-v` loses to `.rc-table td` above
+   (class+type beats class), so the padding was silently never applied. */
+.rc-table td.rc-total-v {
+  height: 24pt;
+  /* 5.65pt right puts 元整's right edge on the measured 513.6pt */
+  padding: 0 5.65pt 0 4pt;
+}
+.rc-total-inner {
   display: flex;
   align-items: center;
+  height: 24pt;
 }
 .rc-total-num {
   flex: 1;
   text-align: center;
-  font-weight: 700;
-  font-size: 15px;
 }
 .rc-total-unit {
   flex-shrink: 0;
 }
 
-.rc-foot {
-  display: flex;
-  justify-content: space-between;
-  margin-top: 10px;
-  font-size: 13px;
+/* --- foot: 補習班存根聯 / 家長收執聯 + 繳費日期 --- */
+.rc-stub {
+  position: absolute;
+  left: 0;
+  top: 264.5pt;
+  font-size: 11pt;
+  line-height: 13pt;
+  white-space: nowrap;
 }
 .rc-paydate {
-  margin-right: 60px;
+  position: absolute;
+  left: 243.8pt;
+  top: 264.5pt;
+  font-size: 11pt;
+  line-height: 13pt;
+  white-space: nowrap;
+}
+.rc-paydate .rc-v {
+  margin-left: 16.9pt; /* value at 310.5pt */
 }
 
 /* === 列印 ===
@@ -396,12 +484,14 @@ ol.rc-rules li {
   .rcpt-preview-wrap {
     display: block;
     padding: 0;
+    overflow: visible;
   }
   .rcpt-paper {
     width: auto;
     min-height: 100vh;
     box-shadow: none;
     margin: 0;
+    display: flex;
   }
   /* print the red 收據號碼 even if "Background graphics" is unchecked */
   .rc-num {
@@ -431,12 +521,12 @@ ol.rc-rules li {
       <label class="rcpt-fld"><span>收據號碼</span>
         <div class="rcpt-num-input">
           <span class="rcpt-num-prefix">000</span>
-          <input id="f-num" placeholder="1234" inputmode="numeric">
+          <input id="f-num" placeholder="95" inputmode="numeric">
         </div>
         <em>接續紙本收據簿的號碼，印在右上角紅字。</em>
       </label>
       <label class="rcpt-fld"><span>上課時間</span>
-        <input id="f-classTime" placeholder="115年7月1日 ～ 115年8月31日"></label>
+        <input id="f-classTime" placeholder="115年7月1日 至 115年9月30日"></label>
       <label class="rcpt-fld"><span>學生姓名</span>
         <input id="f-name" placeholder="王小明"></label>
       <label class="rcpt-fld"><span>繳費日期</span>
@@ -447,71 +537,58 @@ ol.rc-rules li {
       <div class="rcpt-sec">項目</div>
       <datalist id="rcpt-item-presets"><option value="學費"></option><option value="註冊費"></option><option value="教材費"></option><option value="講義費"></option><option value="材料費"></option><option value="代辦費"></option><option value="測驗費"></option><option value="補課費"></option></datalist>
       <div class="rcpt-line"><label class="rcpt-fld"><span>項目 1</span><input list="rcpt-item-presets" data-k="item" placeholder="學費"></label><label class="rcpt-fld"><span>金額</span><input data-k="amount" inputmode="numeric" placeholder="12000"></label></div><div class="rcpt-line"><label class="rcpt-fld"><span>項目 2</span><input list="rcpt-item-presets" data-k="item" placeholder="（空白則不印）"></label><label class="rcpt-fld"><span>金額</span><input data-k="amount" inputmode="numeric" placeholder=""></label></div><div class="rcpt-line"><label class="rcpt-fld"><span>項目 3</span><input list="rcpt-item-presets" data-k="item" placeholder="（空白則不印）"></label><label class="rcpt-fld"><span>金額</span><input data-k="amount" inputmode="numeric" placeholder=""></label></div><div class="rcpt-line"><label class="rcpt-fld"><span>項目 4</span><input list="rcpt-item-presets" data-k="item" placeholder="（空白則不印）"></label><label class="rcpt-fld"><span>金額</span><input data-k="amount" inputmode="numeric" placeholder=""></label></div>
-      <div class="rcpt-total-note">合計實收金額 <b id="f-total">0</b> 元整（自動加總）</div>
+      <div class="rcpt-total-note">合計實收金額 <b id="f-total">0</b> 元整（自動加總）<br>
+        收據上印大寫：<span class="cap" id="f-cap">零</span></div>
     </div>
 
     <div class="rcpt-preview-wrap">
       <div class="rcpt-paper">
 <section class="rc">
-  <header class="rc-head">
-    <div class="rc-county"><span>苗栗縣</span><span>私 立</span></div>
-    <div class="rc-title">家偉文理短期補習班</div>
-    <div class="rc-word">收 據</div>
-  </header>
-  <div class="rc-sub">
-    <span class="rc-addr">苗栗縣頭份市建國路52號</span>
-    <span class="rc-lic">府教社字第1030120216號</span>
-  </div>
-  <div class="rc-num">000<span data-f="num"></span></div>
-  <div class="rc-fields">
-    <div class="rc-field"><span class="rc-k">上課時間：</span><span class="rc-v" data-f="classTime"></span></div>
-    <div class="rc-field"><span class="rc-k">學生姓名：</span><span class="rc-v" data-f="name"></span></div>
-  </div>
+  <div class="rc-county">苗栗縣
+私 立</div>
+  <div class="rc-title">家偉文理短期補習班</div>
+  <div class="rc-word">收 據</div>
+  <div class="rc-addr">苗栗縣頭份市建國路52號</div>
+  <div class="rc-lic">府教社字第1030120216號</div>
+  <div class="rc-num" data-f="num"></div>
+  <div class="rc-field f-time"><span class="rc-k">上課時間：</span><span class="rc-v" data-f="classTime"></span></div>
+  <div class="rc-field f-name"><span class="rc-k">學生姓名：</span><span class="rc-v" data-f="name"></span></div>
   <table class="rc-table">
     <thead><tr>
       <th class="rc-c-item">項 目</th><th class="rc-c-amt">金 額</th><th class="rc-c-note">備 註</th>
     </tr></thead>
-    <tbody><tr><td class="rc-c-item" data-f="item0"></td><td class="rc-c-amt" data-f="amt0"></td><td class="rc-c-note" rowspan="4"><div class="rc-rules-lead">退費說明：學生繳納費用後離班者，補習班應依下列規定辦理退費。</div><ol class="rc-rules"><li>學生於實際上課日期第二天上課前離班者，扣除實際已繳交費用 30%，之餘額全部退還。</li><li>學生實際上課期間未逾當期 1/3 者，應退還已繳全期費用之半數；已逾當期 1/3 者，所收取之當期費用得全數不予退還。</li><li>補習班所收取之代辦費應全額退還，但已購買成品者發給成品。</li><li>本記載事項除另有預定外，皆依苗栗縣政府訂定之短期補習班設立及管理規則之相關規定辦理。</li></ol></td></tr><tr><td class="rc-c-item" data-f="item1"></td><td class="rc-c-amt" data-f="amt1"></td></tr><tr><td class="rc-c-item" data-f="item2"></td><td class="rc-c-amt" data-f="amt2"></td></tr><tr><td class="rc-c-item" data-f="item3"></td><td class="rc-c-amt" data-f="amt3"></td></tr>
+    <tbody><tr><td class="rc-c-item" data-f="item0"></td><td class="rc-c-amt" data-f="amt0"></td><td class="rc-c-note" rowspan="4"><div class="rc-rules-lead">退費說明：學生繳納費用後離班者，補習班應依下列規定辦理退費。</div><ol class="rc-rules"><li>學生於實際上課日期第二天上課前離班者，扣除實際已繳交費用30%，之餘額全部退還。</li><li>學生實際上課期間未逾當期1/3者，應退還已繳全期費用之半數；已逾當期1/3者，所收取之當期費用得全數不予退還。</li><li>補習班所收取之代辦費應全額退還，但已購買成品者發給成品。</li><li>本記載事項除另有預定外，皆依苗栗縣政府訂定之短期補習班設立及管理規則之相關規定辦理。</li></ol></td></tr><tr><td class="rc-c-item" data-f="item1"></td><td class="rc-c-amt" data-f="amt1"></td></tr><tr><td class="rc-c-item" data-f="item2"></td><td class="rc-c-amt" data-f="amt2"></td></tr><tr><td class="rc-c-item" data-f="item3"></td><td class="rc-c-amt" data-f="amt3"></td></tr>
       <tr class="rc-total">
-        <td colspan="2" class="rc-total-k">合 計 實 收 金 額</td>
-        <td class="rc-total-v"><span class="rc-total-num" data-f="total"></span><span class="rc-total-unit">元整</span></td>
+        <td colspan="2" class="rc-total-k">合計實收金額</td>
+        <td class="rc-total-v"><div class="rc-total-inner"><span class="rc-total-num" data-f="total"></span><span class="rc-total-unit">元整</span></div></td>
       </tr>
     </tbody>
   </table>
-  <footer class="rc-foot">
-    <span class="rc-stub">補習班存根聯</span>
-    <span class="rc-paydate">繳費日期：<span class="rc-v" data-f="payDate"></span></span>
-  </footer>
+  <div class="rc-stub">補習班存根聯</div>
+  <div class="rc-paydate"><span class="rc-k">繳費日期：</span><span class="rc-v" data-f="payDate"></span></div>
 </section><div class="rcpt-cut"></div><section class="rc">
-  <header class="rc-head">
-    <div class="rc-county"><span>苗栗縣</span><span>私 立</span></div>
-    <div class="rc-title">家偉文理短期補習班</div>
-    <div class="rc-word">收 據</div>
-  </header>
-  <div class="rc-sub">
-    <span class="rc-addr">苗栗縣頭份市建國路52號</span>
-    <span class="rc-lic">府教社字第1030120216號</span>
-  </div>
-  <div class="rc-num">000<span data-f="num"></span></div>
-  <div class="rc-fields">
-    <div class="rc-field"><span class="rc-k">上課時間：</span><span class="rc-v" data-f="classTime"></span></div>
-    <div class="rc-field"><span class="rc-k">學生姓名：</span><span class="rc-v" data-f="name"></span></div>
-  </div>
+  <div class="rc-county">苗栗縣
+私 立</div>
+  <div class="rc-title">家偉文理短期補習班</div>
+  <div class="rc-word">收 據</div>
+  <div class="rc-addr">苗栗縣頭份市建國路52號</div>
+  <div class="rc-lic">府教社字第1030120216號</div>
+  <div class="rc-num" data-f="num"></div>
+  <div class="rc-field f-time"><span class="rc-k">上課時間：</span><span class="rc-v" data-f="classTime"></span></div>
+  <div class="rc-field f-name"><span class="rc-k">學生姓名：</span><span class="rc-v" data-f="name"></span></div>
   <table class="rc-table">
     <thead><tr>
       <th class="rc-c-item">項 目</th><th class="rc-c-amt">金 額</th><th class="rc-c-note">備 註</th>
     </tr></thead>
-    <tbody><tr><td class="rc-c-item" data-f="item0"></td><td class="rc-c-amt" data-f="amt0"></td><td class="rc-c-note" rowspan="4"><div class="rc-rules-lead">退費說明：學生繳納費用後離班者，補習班應依下列規定辦理退費。</div><ol class="rc-rules"><li>學生於實際上課日期第二天上課前離班者，扣除實際已繳交費用 30%，之餘額全部退還。</li><li>學生實際上課期間未逾當期 1/3 者，應退還已繳全期費用之半數；已逾當期 1/3 者，所收取之當期費用得全數不予退還。</li><li>補習班所收取之代辦費應全額退還，但已購買成品者發給成品。</li><li>本記載事項除另有預定外，皆依苗栗縣政府訂定之短期補習班設立及管理規則之相關規定辦理。</li></ol></td></tr><tr><td class="rc-c-item" data-f="item1"></td><td class="rc-c-amt" data-f="amt1"></td></tr><tr><td class="rc-c-item" data-f="item2"></td><td class="rc-c-amt" data-f="amt2"></td></tr><tr><td class="rc-c-item" data-f="item3"></td><td class="rc-c-amt" data-f="amt3"></td></tr>
+    <tbody><tr><td class="rc-c-item" data-f="item0"></td><td class="rc-c-amt" data-f="amt0"></td><td class="rc-c-note" rowspan="4"><div class="rc-rules-lead">退費說明：學生繳納費用後離班者，補習班應依下列規定辦理退費。</div><ol class="rc-rules"><li>學生於實際上課日期第二天上課前離班者，扣除實際已繳交費用30%，之餘額全部退還。</li><li>學生實際上課期間未逾當期1/3者，應退還已繳全期費用之半數；已逾當期1/3者，所收取之當期費用得全數不予退還。</li><li>補習班所收取之代辦費應全額退還，但已購買成品者發給成品。</li><li>本記載事項除另有預定外，皆依苗栗縣政府訂定之短期補習班設立及管理規則之相關規定辦理。</li></ol></td></tr><tr><td class="rc-c-item" data-f="item1"></td><td class="rc-c-amt" data-f="amt1"></td></tr><tr><td class="rc-c-item" data-f="item2"></td><td class="rc-c-amt" data-f="amt2"></td></tr><tr><td class="rc-c-item" data-f="item3"></td><td class="rc-c-amt" data-f="amt3"></td></tr>
       <tr class="rc-total">
-        <td colspan="2" class="rc-total-k">合 計 實 收 金 額</td>
-        <td class="rc-total-v"><span class="rc-total-num" data-f="total"></span><span class="rc-total-unit">元整</span></td>
+        <td colspan="2" class="rc-total-k">合計實收金額</td>
+        <td class="rc-total-v"><div class="rc-total-inner"><span class="rc-total-num" data-f="total"></span><span class="rc-total-unit">元整</span></div></td>
       </tr>
     </tbody>
   </table>
-  <footer class="rc-foot">
-    <span class="rc-stub">家長收執聯</span>
-    <span class="rc-paydate">繳費日期：<span class="rc-v" data-f="payDate"></span></span>
-  </footer>
+  <div class="rc-stub">家長收執聯</div>
+  <div class="rc-paydate"><span class="rc-k">繳費日期：</span><span class="rc-v" data-f="payDate"></span></div>
 </section>
       </div>
     </div>
@@ -537,18 +614,73 @@ function amountValue(raw) {
   const v = Number(String(raw || "").replace(/[^0-9.-]/g, ""));
   return isFinite(v) ? v : 0;
 }
-/** Numeric amounts get thousands separators; anything else prints as typed. */
+/** Numeric amounts print bare (no separators — as on the real receipt). */
 function formatAmount(raw) {
   const s = String(raw || "").trim();
   if (!s) return "";
   if (!/^[\d,]+(\.\d+)?$/.test(s)) return s;
-  return amountValue(s).toLocaleString("en-US");
+  return String(amountValue(s));
+}
+/** The 收據號碼 as printed: 000 + a zero-padded serial -> 000095. */
+function receiptNo(raw) {
+  const d = String(raw || "").replace(/\D/g, "");
+  return d ? "000" + d.padStart(3, "0") : "";
+}
+function capitalAmount(value) {
+  var n = Math.round(value);
+  if (!isFinite(n) || n < 0) return "";
+  if (n === 0) return "零";
+
+  var D = ["零", "壹", "貳", "參", "肆", "伍", "陸", "柒", "捌", "玖"];
+  var U = ["", "拾", "佰", "仟"];
+  var G = ["", "萬", "億", "兆"];
+
+  var out = "";
+  var gi = 0;
+  var prev = -1; // the group immediately below the one being added
+
+  while (n > 0) {
+    var group = n % 10000;
+    n = Math.floor(n / 10000);
+
+    if (group === 0) {
+      gi++;
+      continue; // 零-groups contribute nothing; `prev` intentionally survives
+    }
+
+    // Render this 4-digit group, right to left. A run of internal zeros
+    // collapses to a single 零, and trailing zeros are dropped (200 → 貳佰).
+    var gs = "";
+    var g = group;
+    var zero = false;
+    for (var i = 0; i < 4 && g > 0; i++) {
+      var d = g % 10;
+      if (d === 0) {
+        zero = true;
+      } else {
+        if (zero && gs) gs = D[0] + gs;
+        zero = false;
+        gs = D[d] + U[i] + gs;
+      }
+      g = Math.floor(g / 10);
+    }
+
+    // A 零 is needed at the group seam when the group below does not fill its
+    // 仟 place: 10200 → 壹萬[零]貳佰, but 22800 → 貳萬貳仟捌佰 (no 零).
+    var seam = prev > 0 && prev < 1000 ? D[0] : "";
+    out = gs + G[gi] + seam + out;
+
+    prev = group;
+    gi++;
+  }
+
+  return out;
 }
 /** Write `text` into every data-f="<key>" slot (once per 聯). */
 function put(key, text) { $$('[data-f="' + key + '"]').forEach((el) => (el.textContent = text)); }
 
 function render() {
-  put("num", $("#f-num").value);
+  put("num", receiptNo($("#f-num").value));
   put("classTime", $("#f-classTime").value);
   put("name", $("#f-name").value);
   put("payDate", rocDate($("#f-payDate").value));
@@ -560,9 +692,15 @@ function render() {
     total += amountValue(amt);
     put("item" + i, item);
     put("amt" + i, formatAmount(amt));
+    // a 項目 too long for the 71pt column shrinks to 7pt rather than wrapping
+    // (mirrors ITEM_LONG_CHARS in ReceiptEditor.tsx)
+    $$('[data-f="item' + i + '"]').forEach((el) =>
+      el.classList.toggle("long", item.length > 5));
   });
-  put("total", total > 0 ? total.toLocaleString("en-US") : "");
+  // 合計實收金額 prints 大寫 on the real receipt, never digits.
+  put("total", total > 0 ? capitalAmount(total) : "");
   $("#f-total").textContent = total.toLocaleString("en-US");
+  $("#f-cap").textContent = capitalAmount(total);
   $("#f-roc").textContent = rocDate($("#f-payDate").value) || "—";
 }
 
