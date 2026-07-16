@@ -75,8 +75,9 @@ button:disabled { opacity: 0.6; cursor: default; }
 <form class="card" id="f">
   <h1>家偉補習班 · 管理後台</h1>
   <p class="sub">請以管理者帳號登入 · Owner / Admin sign-in</p>
-  <label>帳號 Email
-    <input type="email" id="email" autocomplete="username" required>
+  <label>帳號 Username
+    <input type="text" id="username" autocomplete="username"
+           placeholder="chiawei" autocapitalize="none" spellcheck="false" required>
   </label>
   <label>密碼 Password
     <input type="password" id="password" autocomplete="current-password" required>
@@ -108,8 +109,13 @@ document.getElementById("f").addEventListener("submit", async (e) => {
   e.preventDefault();
   err.textContent = "";
   go.disabled = true;
+  // Staff sign in with a bare username (e.g. "chiawei"); accounts live under a
+  // fixed internal domain. A full email is still accepted if one is typed.
+  // Mirrors web/src/app/login/page.tsx — keep the two in step.
+  const id = document.getElementById("username").value.trim();
+  const email = id.includes("@") ? id : `${id}@chiawei.local`;
   const { error } = await window.sb.auth.signInWithPassword({
-    email: document.getElementById("email").value.trim(),
+    email,
     password: document.getElementById("password").value,
   });
   if (error) {
