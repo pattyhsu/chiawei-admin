@@ -183,6 +183,22 @@ button.ghost {
 .rcpt-num-input input:focus {
   outline: none;
 }
+/* 上課時間 — two 民國 boxes with 至 between them */
+.rcpt-daterange {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rcpt-daterange input {
+  flex: 1;
+  min-width: 0;
+}
+.rcpt-join {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .rcpt-line {
   display: flex;
   gap: 8px;
@@ -526,17 +542,22 @@ ol.rc-rules li {
         <em>接續紙本收據簿的號碼，印在右上角紅字。</em>
       </label>
       <label class="rcpt-fld"><span>上課時間</span>
-        <input id="f-classTime" placeholder="115年7月1日 至 115年9月30日"></label>
+        <div class="rcpt-daterange">
+          <input id="f-classStart" placeholder="115/7/1" inputmode="numeric">
+          <span class="rcpt-join">至</span>
+          <input id="f-classEnd" placeholder="115/9/30" inputmode="numeric">
+        </div>
+        <em>民國年/月/日。印出：<span id="f-period">—</span></em>
+      </label>
       <label class="rcpt-fld"><span>學生姓名</span>
         <input id="f-name" placeholder="王小明"></label>
       <label class="rcpt-fld"><span>繳費日期</span>
-        <input type="date" id="f-payDate">
-        <em>印在收據上會自動換成民國年（<span id="f-roc">—</span>）。</em>
+        <input id="f-payDate" placeholder="115/7/16" inputmode="numeric">
+        <em>民國年/月/日。印出：<span id="f-roc">—</span></em>
       </label>
 
       <div class="rcpt-sec">項目</div>
-      <datalist id="rcpt-item-presets"><option value="學費"></option><option value="註冊費"></option><option value="教材費"></option><option value="講義費"></option><option value="材料費"></option><option value="代辦費"></option><option value="測驗費"></option><option value="補課費"></option></datalist>
-      <div class="rcpt-line"><label class="rcpt-fld"><span>項目 1</span><input list="rcpt-item-presets" data-k="item" placeholder="學費"></label><label class="rcpt-fld"><span>金額</span><input data-k="amount" inputmode="numeric" placeholder="12000"></label></div><div class="rcpt-line"><label class="rcpt-fld"><span>項目 2</span><input list="rcpt-item-presets" data-k="item" placeholder="（空白則不印）"></label><label class="rcpt-fld"><span>金額</span><input data-k="amount" inputmode="numeric" placeholder=""></label></div><div class="rcpt-line"><label class="rcpt-fld"><span>項目 3</span><input list="rcpt-item-presets" data-k="item" placeholder="（空白則不印）"></label><label class="rcpt-fld"><span>金額</span><input data-k="amount" inputmode="numeric" placeholder=""></label></div><div class="rcpt-line"><label class="rcpt-fld"><span>項目 4</span><input list="rcpt-item-presets" data-k="item" placeholder="（空白則不印）"></label><label class="rcpt-fld"><span>金額</span><input data-k="amount" inputmode="numeric" placeholder=""></label></div>
+      <div class="rcpt-line"><label class="rcpt-fld"><span>項目 1</span><input data-k="item" placeholder="學費"></label><label class="rcpt-fld"><span>金額</span><input data-k="amount" inputmode="numeric" placeholder="10200"></label></div><div class="rcpt-line"><label class="rcpt-fld"><span>項目 2</span><input data-k="item" placeholder="（空白則不印）"></label><label class="rcpt-fld"><span>金額</span><input data-k="amount" inputmode="numeric" placeholder=""></label></div><div class="rcpt-line"><label class="rcpt-fld"><span>項目 3</span><input data-k="item" placeholder="（空白則不印）"></label><label class="rcpt-fld"><span>金額</span><input data-k="amount" inputmode="numeric" placeholder=""></label></div><div class="rcpt-line"><label class="rcpt-fld"><span>項目 4</span><input data-k="item" placeholder="（空白則不印）"></label><label class="rcpt-fld"><span>金額</span><input data-k="amount" inputmode="numeric" placeholder=""></label></div>
       <div class="rcpt-total-note">合計實收金額 <b id="f-total">0</b> 元整（自動加總）<br>
         收據上印大寫：<span class="cap" id="f-cap">零</span></div>
     </div>
@@ -600,15 +621,22 @@ const ROWS = 4;
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
-function todayISO() {
-  const d = new Date(), p = (x) => String(x).padStart(2, "0");
-  return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
+/** Today as a 民國 input string, e.g. "115/7/17" — the 繳費日期 default. */
+function todayROC() {
+  const d = new Date();
+  return (d.getFullYear() - 1911) + "/" + (d.getMonth() + 1) + "/" + d.getDate();
 }
-/** yyyy-mm-dd -> 民國 "115年7月16日". Blank for an unparseable date. */
-function rocDate(iso) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
-  if (!m) return "";
-  return (+m[1] - 1911) + "年" + +m[2] + "月" + +m[3] + "日";
+function rocText(input) {
+  var s = String(input == null ? "" : input).trim();
+  if (!s) return "";
+  // 115/7/1 · 115-07-01 · 115.7.1 — with or without padding/spaces
+  var m = /^(\d{1,3})\s*[/\-.]\s*(\d{1,2})\s*[/\-.]\s*(\d{1,2})$/.exec(s);
+  // Not a shape we recognise: print exactly what was typed rather than guess.
+  // Lets staff write "115年暑期" or similar without the field fighting them.
+  if (!m) return s;
+  var y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return s;
+  return y + "年" + mo + "月" + d + "日";
 }
 function amountValue(raw) {
   const v = Number(String(raw || "").replace(/[^0-9.-]/g, ""));
@@ -681,9 +709,12 @@ function put(key, text) { $$('[data-f="' + key + '"]').forEach((el) => (el.textC
 
 function render() {
   put("num", receiptNo($("#f-num").value));
-  put("classTime", $("#f-classTime").value);
+  // "115年7月1日 至 115年9月30日" — and just the one date if only one is filled.
+  const period = [rocText($("#f-classStart").value), rocText($("#f-classEnd").value)]
+    .filter(Boolean).join(" 至 ");
+  put("classTime", period);
   put("name", $("#f-name").value);
-  put("payDate", rocDate($("#f-payDate").value));
+  put("payDate", rocText($("#f-payDate").value));
 
   let total = 0;
   $$(".rcpt-line").forEach((row, i) => {
@@ -701,18 +732,19 @@ function render() {
   put("total", total > 0 ? capitalAmount(total) : "");
   $("#f-total").textContent = total.toLocaleString("en-US");
   $("#f-cap").textContent = capitalAmount(total);
-  $("#f-roc").textContent = rocDate($("#f-payDate").value) || "—";
+  $("#f-period").textContent = period || "—";
+  $("#f-roc").textContent = rocText($("#f-payDate").value) || "—";
 }
 
 function reset() {
   if (!confirm("清空這張收據，重新開始？")) return;
   $$("#rcpt-form input").forEach((el) => (el.value = ""));
-  $("#f-payDate").value = todayISO();
+  $("#f-payDate").value = todayROC();
   render();
 }
 
 function init() {
-  $("#f-payDate").value = todayISO();
+  $("#f-payDate").value = todayROC();
   $$("input").forEach((el) => el.addEventListener("input", render));
   $("#btn-clear").addEventListener("click", reset);
   $("#btn-print").addEventListener("click", () => window.print());
