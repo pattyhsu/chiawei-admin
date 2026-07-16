@@ -28,8 +28,19 @@
 }
 
 * { box-sizing: border-box; }
+/* The app supplies .appShell/.appBody as .rcpt's flex parent; standalone has no
+   shell, so <body> plays that role. Without this, .rcpt has no definite height
+   and the editor/preview panes cannot scroll independently. The print block in
+   globals.css resets html/body back to auto height. */
+html {
+  height: 100%;
+}
 body {
   margin: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   color: var(--ink);
   background: var(--bg);
   font-family: "PingFang TC", "Noto Sans TC", system-ui, -apple-system, Arial,
@@ -98,16 +109,50 @@ button.ghost {
   gap: 8px;
 }
 
-.rcpt-work {
+/* --- Two independently scrolling panes ---
+   The editor and the paper each own their scrollbar, so scrolling a long form
+   never drags the receipt off-screen and vice versa.
+
+   Done with a flex chain rather than `height: calc(100vh - 53px)` (what
+   .builder does) because this same CSS serves BOTH shells: the app, where .rcpt
+   sits under .appHeader, and the standalone receipt.html, where it sits
+   directly in <body>. Each link needs `min-height: 0` — a flex item's default
+   `min-height: auto` refuses to shrink below its content, which silently
+   defeats the child's overflow.
+
+   :has() scopes the shell rules to the receipts page so no other /app page's
+   layout changes. */
+.appShell:has(.rcpt) {
+  height: 100vh;
+  overflow: hidden;
+}
+.appShell:has(.rcpt) .appBody {
+  min-height: 0;
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
+}
+.rcpt {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.rcpt-bar {
+  flex: none;
+}
+.rcpt-work {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
 }
 
 /* --- 編輯區 --- */
 .rcpt-editor {
   width: 340px;
   flex-shrink: 0;
-  align-self: stretch;
+  overflow-y: auto; /* its own scrollbar — see .rcpt-work */
   padding: 16px 18px 60px;
   border-right: 1px solid var(--line);
   background: var(--surface);
@@ -241,6 +286,7 @@ button.ghost {
   padding: 24px;
   display: flex;
   align-items: flex-start;
+  overflow-y: auto; /* its own scrollbar — see .rcpt-work */
   /* the paper is a fixed A4 width; editor + paper + padding needs ~1140px, so
      on a narrower screen scroll it rather than clipping the sheet. Centring is
      done with the paper's own auto margins, NOT justify-content:center — the
@@ -498,15 +544,25 @@ ol.rc-rules li {
   .rcpt-editor {
     display: none !important;
   }
+  /* Undo the on-screen scroll containment — otherwise the sheet prints clipped
+     to one viewport. */
+  html,
+  body,
   .appShell:has(.rcpt),
   .appShell:has(.rcpt) .appBody,
+  .rcpt,
   .rcpt-work {
     display: block;
+    height: auto;
     min-height: 0;
+    overflow: visible;
   }
   .rcpt-preview-wrap {
     display: block;
     padding: 0;
+    overflow: visible;
+  }
+  .rcpt-editor {
     overflow: visible;
   }
   .rcpt-paper {
@@ -525,6 +581,82 @@ ol.rc-rules li {
     break-inside: avoid;
   }
 }
+
+/* ── 內容行銷台 (Module G content pipeline) ────────────────────────────────── */
+.ctPage { max-width: 1080px; margin: 0 auto; padding: 24px 16px 64px; }
+.ctHead h2 { margin-bottom: 6px; }
+.ctNav { display: flex; gap: 10px; margin-top: 12px; }
+.ctEmpty { margin-top: 32px; }
+
+/* generic small buttons/chips for the content surface */
+.ctPage .btn, .ctNav .btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--brand); color: #fff;
+  font-size: 13px; font-weight: 600; padding: 7px 14px;
+  cursor: pointer; text-decoration: none; line-height: 1.2;
+}
+.ctPage .btn.ghost, .ctNav .btn.ghost { background: #fff; color: var(--ink); }
+.ctPage .btn.ok { background: #1e7d46; }
+.ctPage .btn.primary { background: var(--brand-orange); }
+.ctPage .btn.danger { color: var(--danger); border-color: var(--danger); }
+.ctPage .btn:disabled { opacity: 0.5; cursor: default; }
+.ctPage .chip {
+  display: inline-block; font-size: 12px; font-weight: 700;
+  border-radius: 999px; padding: 3px 10px;
+  background: #eef1fc; color: var(--brand);
+}
+.ctPage .chip.st-draft { background: #f1f2f5; color: var(--muted); }
+.ctPage .chip.st-approved { background: #e5f4ea; color: #1e7d46; }
+.ctPage .chip.st-posted { background: var(--brand); color: #fff; }
+.ctPage .chip.st-rejected { background: #fdeae3; color: var(--danger); }
+.ctPage .chip.warn { background: #fef6da; color: #8a6a00; }
+.ctPage .chip.ok { background: #e5f4ea; color: #1e7d46; }
+
+.ctDay { margin-top: 28px; }
+.ctDate { font-size: 15px; color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+.ctToday {
+  margin-left: 8px; font-size: 12px; font-weight: 700; color: #fff;
+  background: var(--brand-orange); border-radius: 999px; padding: 2px 8px;
+}
+.ctItem {
+  display: flex; gap: 16px; padding: 14px 0; border-bottom: 1px dashed var(--line);
+}
+.ctItem.st-rejected { opacity: 0.55; }
+.ctThumbs { flex: 0 0 148px; display: flex; flex-direction: column; gap: 8px; }
+.ctThumb { width: 148px; height: 148px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
+.ctMain { flex: 1; min-width: 0; }
+.ctMeta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ctTitle { font-size: 15px; }
+.ctWarn { color: #8a6a00; font-size: 13px; margin: 6px 0 0; }
+.ctCaption {
+  width: 100%; margin-top: 10px; font: inherit; font-size: 13px;
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  background: #fff; resize: vertical;
+}
+.ctActions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+
+/* composer + bank */
+.ctCompose, .ctBank { margin-top: 18px; display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
+.ctCompose .fld, .ctBank .fld { width: 100%; }
+.ctFormRow { display: flex; gap: 12px; width: 100%; align-items: flex-end; }
+.ctFormRow .fld.grow { flex: 1; }
+.ctCompose textarea, .ctBank textarea, .ctBank input.ctBankTitle {
+  width: 100%; font: inherit; font-size: 14px;
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: #fff;
+}
+.ctConsent {
+  border: 1px solid var(--brand-yellow); background: #fef6da33;
+  border-radius: 10px; padding: 12px 14px; width: 100%;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.ctConsent .chk { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+.ctBankItem {
+  width: 100%; border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px 14px; background: #fff; display: flex; flex-direction: column; gap: 8px;
+}
+.ctBankItem.st-used { opacity: 0.6; }
+.ctBankTitle { font-weight: 700; }
 
 </style>
 </head>
