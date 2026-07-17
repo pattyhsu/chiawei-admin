@@ -189,11 +189,15 @@ const BUCKET = "content-cards";
 const TYPE_LABEL = {
   tip: "學習技巧", exam_info: "會考情報", honor_roll: "榜單", event: "活動",
   testimonial_parent: "家長見證", testimonial_student: "學生見證", leap_card: "躍升卡",
+  image_post: "圖片貼文",
 };
 const STATUS_LABEL = { draft: "草稿", approved: "已核准", posted: "已發布", rejected: "已退回" };
 const BANK_KIND = { tip: "學習技巧", exam_info: "會考情報" };
 const BANK_STATUS = { draft: "待審核", reviewed: "已審核", used: "已使用" };
-const PII_TYPES = ["honor_roll", "testimonial_parent", "testimonial_student", "leap_card"];
+// 個資法 gate — mirrors the content_consent_required CHECK constraint. The DB is
+// the real enforcement; this only decides whether the UI shows the consent block.
+// image_post is here because an uploaded photo may have real students in it.
+const PII_TYPES = ["honor_roll", "testimonial_parent", "testimonial_student", "leap_card", "image_post"];
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -263,7 +267,7 @@ function itemHtml(it) {
         <button class="ghost" data-act="save">儲存文案</button>
         <button class="ghost" data-act="copy">複製文案</button>
         ${pending ? "" : `<button class="ghost" data-act="download">下載圖片</button>`}
-        <button class="ghost" data-act="rerender">重新產圖</button>
+        ${it.type === "image_post" ? "" : `<button class="ghost" data-act="rerender">重新產圖</button>`}
         ${it.status === "draft" ? `<button class="ok" data-act="approve">核准</button>
           <button class="ghost" data-act="reject">退回</button>` : ""}
         ${it.status !== "posted" ? `<button class="warn" data-act="posted">標記已發布</button>` : ""}
@@ -416,6 +420,12 @@ const FORMS = {
     </div>`,
   testimonial_parent: () => TESTIMONIAL(),
   testimonial_student: () => TESTIMONIAL(),
+  image_post: () => `
+    <p class="muted">整張圖就是貼文（節慶祝賀、活動照片、自己做好的圖都行）。
+      在 ChatGPT 產好圖存到電腦，再上傳到這裡；不需要卡片版型，也不用等產圖。</p>
+    <label class="fld">圖片檔（PNG / JPG，建議 1080×1080 正方形，10MB 以內）
+      <input type="file" id="c-file" accept="image/png,image/jpeg,image/webp"></label>
+    <img id="c-preview" class="hide" style="max-width:320px;border-radius:10px;border:1px solid var(--line);margin-top:8px" alt="預覽">`,
   leap_card: () => `
     <div class="row">
       <label class="fld">學生<input type="text" data-p="student" placeholder="王同學"></label>
@@ -465,7 +475,7 @@ function renderCompose() {
     <div id="c-form" class="card"></div>
     <label class="fld">貼文文案（可留空之後再改）<textarea rows="4" id="c-caption"></textarea></label>
     <div class="consent hide" id="c-consent">
-      <label class="chk"><input type="checkbox" id="c-sample"> 示意資料（虛構內容，卡片會標「示意資料」徽章）</label>
+      <label class="chk"><input type="checkbox" id="c-sample"> <span id="c-sample-label"></span></label>
       <label class="fld hide" id="c-consent-fld">家長書面同意編號（真實學生資料必填 — 個資法）
         <input type="text" id="c-ref" placeholder="例：C-2026-001"></label>
     </div>
@@ -479,6 +489,21 @@ function renderCompose() {
     document.getElementById("c-consent").classList.toggle("hide", !PII_TYPES.includes(t));
     if (t === "honor_roll") document.getElementById("students").innerHTML = studentRow();
     if (t === "leap_card") document.getElementById("traj").innerHTML = trajRow() + trajRow() + trajRow();
+    if (t === "image_post") {
+      document.getElementById("c-file").addEventListener("change", (e) => {
+        const f = e.target.files[0];
+        const img = document.getElementById("c-preview");
+        img.classList.toggle("hide", !f);
+        if (f) img.src = URL.createObjectURL(f);
+      });
+    }
+    // The 示意資料 wording differs for an uploaded photo: there it asserts that
+    // nobody identifiable is in frame, not that the numbers are invented.
+    document.getElementById("c-sample-label").textContent = t === "image_post"
+      ? "這張圖沒有真實學生（AI 生成／示意圖／無人物）"
+      : "示意資料（虛構內容，卡片會標「示意資料」徽章）";
+    document.getElementById("c-go").textContent = t === "image_post"
+      ? "上傳並建立草稿" : "建立草稿（稍後自動產圖）";
     syncConsent();
   };
   typeEl.addEventListener("change", swap);
@@ -503,6 +528,7 @@ function syncConsent() {
 
 function payloadOf(t) {
   const v = (p) => (document.querySelector(`[data-p="${p}"]`)?.value || "").trim();
+  if (t === "image_post") return {};   // the image is the content; nothing to render
   if (t === "honor_roll") return {
     year_roc: v("year_roc"), headline: v("headline"), note: v("note") || undefined,
     students: [...document.querySelectorAll("[data-student]")].map((r) => ({
@@ -539,6 +565,35 @@ async function submit() {
     return;
   }
   go.disabled = true;
+
+  // An image post carries its own picture — upload it first, then insert the row
+  // WITH image_keys set, so the render trigger never fires and no card is drawn.
+  let imageKeys = [];
+  if (t === "image_post") {
+    const file = document.getElementById("c-file").files[0];
+    if (!file) {
+      msg.innerHTML = '<span style="color:var(--danger)">請先選一張圖片。</span>';
+      go.disabled = false;
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      msg.innerHTML = '<span style="color:var(--danger)">圖片太大（超過 10MB），請先壓縮。</span>';
+      go.disabled = false;
+      return;
+    }
+    msg.textContent = "上傳圖片中…";
+    const ext = (file.name.split(".").pop() || "png").toLowerCase();
+    const path = `content/uploads/${crypto.randomUUID()}.${ext}`;
+    const up = await window.sb.storage.from(BUCKET)
+      .upload(path, file, { contentType: file.type, upsert: false });
+    if (up.error) {
+      msg.innerHTML = `<span style="color:var(--danger)">上傳失敗：${esc(up.error.message)}</span>`;
+      go.disabled = false;
+      return;
+    }
+    imageKeys = [path];
+  }
+
   msg.textContent = "建立中…";
   const { data, error } = await window.sb.from("content_items").insert({
     type: t,
@@ -548,15 +603,17 @@ async function submit() {
     payload: payloadOf(t),
     sample_data: sample,
     consent_ref: ref,
+    image_keys: imageKeys,
   }).select("id").single();
   go.disabled = false;
   if (error) {
     msg.innerHTML = `<span style="color:var(--danger)">建立失敗：${esc(error.message)}</span>`;
     return;
   }
-  msg.textContent = "已建立 ✓ 卡片產生中（約 2–3 分鐘），完成後會出現在佇列。";
   document.querySelector('nav button[data-tab="queue"]').click();
   await loadQueue();
+  if (t === "image_post") return;               // image is already there
+  msg.textContent = "已建立 ✓ 卡片產生中（約 2–3 分鐘），完成後會出現在佇列。";
   pollFor(data.id);
 }
 
