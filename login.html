@@ -95,14 +95,21 @@ const rejection = sessionStorage.getItem("auth_rejection");
 if (rejection === "not_invited") {
   err.textContent = "此帳號尚未開通，請聯絡管理者。";
 } else if (rejection === "forbidden") {
-  err.textContent = "此帳號沒有收據權限（僅限 owner / admin）。";
+  err.textContent = "此帳號沒有管理後台權限（僅限 owner / admin）。";
 }
 sessionStorage.removeItem("auth_rejection");
+
+// Where to land after signing in. auth.js bounces people here from whichever
+// tool they asked for, so honour ?next= and default to the launcher. Only
+// same-page relative targets — never an absolute URL from the query string.
+const params = new URLSearchParams(location.search);
+const raw = params.get("next") || "";
+const NEXT = /^[a-z0-9_-]+\.html$/i.test(raw) ? raw : "index.html";
 
 // Already signed in? Skip the form.
 (async () => {
   const { data } = await window.sb.auth.getSession();
-  if (data && data.session) location.replace("receipt.html");
+  if (data && data.session) location.replace(NEXT);
 })();
 
 document.getElementById("f").addEventListener("submit", async (e) => {
@@ -123,7 +130,7 @@ document.getElementById("f").addEventListener("submit", async (e) => {
     go.disabled = false;
     return;
   }
-  location.replace("receipt.html");
+  location.replace(NEXT);
 });
 </script>
 </body>

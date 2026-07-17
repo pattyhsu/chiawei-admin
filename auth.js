@@ -18,7 +18,8 @@
 //          owner/admin — signs out, flags the reason, redirects to login.html.
 //       5. On success — stashes the role on window.CURRENT_USER_ROLE and
 //          unhides <body>.
-//   - `window.signOut()` is exposed for the 登出 button.
+//   - `window.signOut()` is exposed for the 登出 button. It lands on a bare
+//     login.html (no ?next=) — signing out is a deliberate exit, not a bounce.
 //
 // HONEST LIMIT: this is a client-side gate on a static file. It stops casual
 // and accidental access, and it is the same protection backstage has. It does
@@ -42,12 +43,20 @@
     if (s) s.remove();
   }
 
+  // Come back to whichever tool was asked for once they have signed in.
+  function loginUrl() {
+    var here = location.pathname.split("/").pop();
+    return here && here !== "login.html" && here !== "index.html"
+      ? "login.html?next=" + encodeURIComponent(here)
+      : "login.html";
+  }
+
   function reject(sb, reason) {
     sessionStorage.setItem("auth_rejection", reason);
     return Promise.resolve(sb && sb.auth.signOut())
       .catch(function () {})
       .then(function () {
-        location.replace("login.html");
+        location.replace(loginUrl());
       });
   }
 
@@ -65,11 +74,11 @@
       session = resp && resp.data && resp.data.session;
     } catch (e) {
       console.error("[auth] getSession threw", e);
-      location.replace("login.html");
+      location.replace(loginUrl());
       return;
     }
     if (!session) {
-      location.replace("login.html");
+      location.replace(loginUrl());
       return;
     }
 

@@ -1,8 +1,76 @@
 <!doctype html>
+<html lang="zh-TW">
+<head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>家偉補習班 · 管理後台</title>
-<!-- Bare landing: the only tool here today is the 收據產生器. auth.js on
-     receipt.html does the real gating; this just saves typing the path. -->
-<meta http-equiv="refresh" content="0; url=receipt.html">
-<a href="receipt.html">收據產生器 →</a>
+<!-- The launcher. This used to be a meta-refresh straight into receipt.html,
+     which made the second tool unreachable by typing the bare domain. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sb.js"></script>
+<script src="auth.js"></script>
+<style>
+:root {
+  --brand: #2547c7; --brand-orange: #ef5226;
+  --bg: #f6f7fb; --surface: #fff; --ink: #1b1f2a; --muted: #6b7280; --line: #e3e6ee;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px;
+  color: var(--ink); background: var(--bg);
+  font-family: "PingFang TC", "Noto Sans TC", system-ui, -apple-system, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { width: 100%; max-width: 460px; }
+h1 { font-size: 20px; color: var(--brand); margin: 0 0 4px; }
+.sub { font-size: 13px; color: var(--muted); margin: 0 0 20px; }
+a.tool {
+  display: block; text-decoration: none; color: inherit;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 16px 18px; margin-bottom: 12px;
+  box-shadow: 0 6px 24px rgba(37, 71, 199, .06);
+}
+a.tool:hover { border-color: var(--brand); }
+a.tool .name { font-weight: 700; font-size: 16px; color: var(--brand); }
+a.tool .desc { font-size: 13px; color: var(--muted); margin-top: 4px; line-height: 1.6; }
+.foot { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
+.foot .who { font-size: 12px; color: var(--muted); flex: 1; }
+button {
+  font: inherit; font-size: 13px; cursor: pointer; border: 1px solid var(--line);
+  border-radius: 7px; padding: 7px 12px; background: #fff; color: var(--ink);
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>家偉補習班 · 管理後台</h1>
+  <p class="sub">Admin · admin.chiaweiedu.com</p>
+
+  <a class="tool" href="receipt.html">
+    <div class="name">收據產生器 →</div>
+    <div class="desc">開立學費收據，四個分校共用一個版型；大寫金額自動換算，直接列印或存成 PDF。</div>
+  </a>
+
+  <a class="tool" href="content.html">
+    <div class="name">內容行銷台 →</div>
+    <div class="desc">FB / IG / LINE 貼文：審核每日自動產生的草稿、下載卡片、複製文案，
+      也可以手動建立榜單、活動、見證、躍升卡。</div>
+  </a>
+
+  <div class="foot">
+    <span class="who" id="who"></span>
+    <button type="button" id="btn-signout">登出</button>
+  </div>
+</div>
+<script>
+(async () => {
+  await window.authGate();
+  if (!window.CURRENT_USER_ROLE) return;
+  document.getElementById("btn-signout").addEventListener("click", window.signOut);
+  document.getElementById("who").textContent =
+    `${window.CURRENT_USER.email} · ${window.CURRENT_USER_ROLE}`;
+})();
+</script>
+</body>
+</html>
