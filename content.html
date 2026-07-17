@@ -165,8 +165,11 @@ label.fld.grow { flex: 1; min-width: 140px; }
   <section id="tab-bank" class="hide">
     <h2>文案庫</h2>
     <p class="muted">
-      學習技巧（週一／四）、會考情報（週二）的存貨。<b>只有「已審核」的會被每日排程拿去發</b> ——
-      沒有存貨的那天就不發文，這是刻意的。
+      這裡是<b>存貨</b>，不是貼文。按「審核通過」不會馬上出現在佇列 ——
+      它只是排進待發清單；每天早上排程<b>挑一則</b>做成卡片放到佇列：
+      <b>學習技巧＝週一／四</b>、<b>會考情報＝週二</b>。<br>
+      沒有「已審核」存貨的那天就<b>不發文</b>（不會報錯，就是跳過）——
+      所以這裡審核多少，就決定了社群能連續發多久。
     </p>
     <p class="muted" id="bank-stock"></p>
     <div id="bank"></div>
@@ -350,9 +353,18 @@ async function loadBank() {
   if (error) { document.getElementById("bank").innerHTML =
     `<p class="empty">讀取失敗：${esc(error.message)}</p>`; return; }
   BANK = data || [];
+  // Say how long the stock lasts, not just how many there are — a bare count
+  // doesn't tell you the feed is about to go quiet. tip ships Mon+Thu (2/wk),
+  // exam_info Tue (1/wk); keep in step with PILLARS in generate-daily.ts.
   const n = (k) => BANK.filter((b) => b.kind === k && b.status === "reviewed").length;
+  const runway = (count, perWeek) => {
+    if (!count) return '<b style="color:var(--danger)">0 則 — 這個主題目前不會發文</b>';
+    const wks = count / perWeek;
+    const txt = wks >= 1 ? `約 ${Math.floor(wks)} 週` : "不到 1 週";
+    return `<b>${count}</b> 則（${txt}）${wks < 1 ? ' <span style="color:var(--brand-orange)">← 快用完了</span>' : ""}`;
+  };
   document.getElementById("bank-stock").innerHTML =
-    `存貨：學習技巧 <b>${n("tip")}</b> 則已審核 · 會考情報 <b>${n("exam_info")}</b> 則已審核`;
+    `已審核存貨：學習技巧 ${runway(n("tip"), 2)} · 會考情報 ${runway(n("exam_info"), 1)}`;
   document.getElementById("bank").innerHTML = BANK.map((b) => `
     <div class="card ${b.status === "used" ? "used" : ""}" data-id="${b.id}">
       <div class="meta">
@@ -363,6 +375,8 @@ async function loadBank() {
       <textarea rows="1" data-f="title">${esc(b.title)}</textarea>
       <textarea rows="3" data-f="body">${esc(b.body)}</textarea>
       <textarea rows="2" data-f="caption" placeholder="貼文文案（留空 = 自動套模板）">${esc(b.caption || "")}</textarea>
+      ${b.status === "reviewed" ? `<p class="muted" style="margin:0">✓ 已排入待發清單 —— 等${b.kind === "tip" ? "下一個週一／四" : "下一個週二"}早上排程挑到它，就會出現在佇列。</p>` : ""}
+      ${b.status === "used" ? `<p class="muted" style="margin:0">已做成貼文（在佇列裡）。</p>` : ""}
       <div class="acts">
         <button class="ghost" data-act="save">儲存</button>
         ${b.status === "draft" ? `<button class="ok" data-act="review">審核通過</button>` : ""}
