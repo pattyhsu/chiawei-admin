@@ -34,7 +34,23 @@ here** — never regenerate over it.
 
 Three tabs: **佇列** (review/approve/download the day's drafts, mark them posted),
 **文案庫** (approve pre-authored 學習技巧／會考情報 copy — only 已審核 rows ever
-ship), **新貼文** (compose 榜單／活動／見證／躍升卡 by hand).
+ship), **新貼文** (compose 榜單／活動／見證／躍升卡 by hand, or upload a 圖片貼文).
+
+### Where illustrations come from
+
+There is **no image generation in this page, on purpose.** A key can't live in a
+public repo, and a subscription (ChatGPT / Claude) is not API access — automating
+those UIs headlessly breaks their terms. So images are made in a real design tool
+and uploaded:
+
+**Claude → Canva → export PNG → 上傳** is the recommended route. Canva's AI
+Connector is an official Claude integration (click-to-connect on claude.ai, no API
+key): it applies the Brand Kit, renders 中文 correctly — which raw image models do
+not — and exports a PNG. ChatGPT's image generation works too, and a plain photo is
+just a file.
+
+An `image_post` is created with `image_keys` already set, so it never enters the
+render path: no card template, no Chromium, no 2–3 min wait.
 
 **It has no server.** Reads and writes go straight to Supabase under the anon key,
 governed by RLS. Card PNGs live in the private `content-cards` Storage bucket and

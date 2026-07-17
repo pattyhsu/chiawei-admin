@@ -421,8 +421,10 @@ const FORMS = {
   testimonial_parent: () => TESTIMONIAL(),
   testimonial_student: () => TESTIMONIAL(),
   image_post: () => `
-    <p class="muted">整張圖就是貼文（節慶祝賀、活動照片、自己做好的圖都行）。
-      在 ChatGPT 產好圖存到電腦，再上傳到這裡；不需要卡片版型，也不用等產圖。</p>
+    <p class="muted">整張圖就是貼文（節慶祝賀、活動照片、插圖都行）。做好圖存到電腦，
+      再上傳到這裡；不需要卡片版型，也不用等產圖。<br>
+      推薦 <b>Claude 接 Canva</b>（Claude.ai → 連結 Canva）：直接叫它出圖，會套用品牌色和字型，
+      中文也不會變形，匯出 PNG 再上傳。ChatGPT 產的圖也可以。</p>
     <label class="fld">圖片檔（PNG / JPG，建議 1080×1080 正方形，10MB 以內）
       <input type="file" id="c-file" accept="image/png,image/jpeg,image/webp"></label>
     <img id="c-preview" class="hide" style="max-width:320px;border-radius:10px;border:1px solid var(--line);margin-top:8px" alt="預覽">`,
