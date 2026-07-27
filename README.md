@@ -20,6 +20,7 @@ Two tools: the **收據產生器** and the **內容行銷台**.
 | `index.html` | **Launcher** — the menu of tools. Gated. |
 | `receipt.html` | **GENERATED — do not edit by hand.** The 收據產生器, auth-gated. |
 | `content.html` | The 內容行銷台 — **hand-written**, edit it here. Gated. |
+| `roster.html` | The 名冊 (班級 × 學生 × 任教老師) — **hand-written**. Gated. **Handles minors' PII.** |
 | `login.html` | Sign-in surface. Deliberately does not load `auth.js`. Honours `?next=`. |
 | `auth.js` | Session gate: requires a Supabase session **and** an owner/admin role. |
 | `sb.js` | Supabase browser client (anon key — public by design, RLS behind it). |
@@ -132,6 +133,34 @@ from when this repo held only the receipt — a blank form. It is safe because o
 not because of `auth.js`. So: **never put anything secret in this repo** (the
 `service_role` key is server-only and lives in `chiawei/.env`), and never add a page
 that ships data in its markup rather than fetching it under the user's own session.
+
+⚠️⚠️ **`roster.html` goes further: it is the school's student PII** — 姓名, 學號,
+就讀學校, 家長姓名, 家長電話 — on a public URL, with RLS as the entire boundary. That
+was an explicit owner decision (2026-07-28), taken with the trade-off stated: a
+stolen owner password exposes minors' data from anywhere, rather than requiring
+physical access to the school machine. What holds it up, all in
+`chiawei/supabase/migrations/20260728000002_roster_admin_surface.sql` and proven by
+pgTAP `10_roster_admin_rls_test.sql` (22 asserts):
+
+- owner/admin-only **per-command** policies on `classes` / `students` /
+  `enrollments` / `class_teachers`. Per-command, not `for all`, so the teacher /
+  parent / student **read** tiers from `20260611000009` are provably untouched —
+  `03_roster_assessment_rls_test.sql` staying at 19/19 is that proof.
+- **column grants** exclude `students.profile_id` (an auth link — setting it would
+  make another user *be* that student) and `profiles.role` (an admin must not mint
+  themselves an owner). Neither is writable from a browser *by anyone*, owner included.
+- **no DELETE grant** on `classes`/`students`: 停用 is a soft-delete. 個資法, and
+  every FK into them is NO ACTION so a hard delete could not work regardless.
+- every write lands an audit row via a **security-definer trigger**, not page code.
+
+Verified from a real signed-in **teacher** session in devtools, bypassing `auth.js`
+entirely: reads returned 0 rows, `INSERT` raised `42501`, `UPDATE`/`DELETE` affected
+0 rows. If you add another page here that touches student data, re-prove the same —
+do not lean on the gate.
+
+**Teacher logins are NOT managed here** and cannot be: creating one needs the
+Supabase Auth Admin API (`service_role`). That lives in the 出題台 app at
+`/app/teachers`, on localhost.
 
 ## DNS
 

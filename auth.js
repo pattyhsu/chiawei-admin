@@ -24,9 +24,21 @@
 // HONEST LIMIT: this is a client-side gate on a static file. It stops casual
 // and accidental access, and it is the same protection backstage has. It does
 // NOT make the page's markup secret — the file is served publicly by GitHub
-// Pages and its source is in a public repo. That is acceptable here precisely
-// because the page is a blank form: no student PII, no bank content, no keys
-// beyond the anon key. Never put anything secret behind this gate.
+// Pages and its source is in a public repo, and it does NOT protect DATA:
+// anyone can open devtools and call Supabase with the anon key directly.
+//
+// So: never put a SECRET in the markup behind this gate (no keys beyond the
+// anon key, no bank content baked into the page). Data is a different question
+// — it is protected, but by RLS in the database, never by this gate.
+//
+// ⚠️ roster.html (added 2026-07-28) DOES show minors' PII — 姓名, 學號, 家長電話.
+// That was an explicit owner decision, and it rests entirely on the database
+// enforcing the boundary: owner/admin-only RLS on classes/students/enrollments/
+// class_teachers, column grants that exclude students.profile_id and
+// profiles.role, no DELETE grant on the PII tables, and a security-definer audit
+// trigger on every write (migration 20260728000002, pgTAP 10). If you add
+// another page here that touches student data, verify the same holds for it —
+// do not lean on this gate.
 
 (function () {
   // Hide <body> as early as possible; visibility (not display) preserves layout
