@@ -135,6 +135,9 @@ ul.list li.off { opacity: .55; }
 .gradetabs { display: flex; gap: 6px; margin-bottom: 12px; }
 .gradetabs button { flex: 1; font-size: 13px; padding: 6px 0; }
 .gradetabs button.on { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
+/* global student search */
+.searchbar { margin-bottom: 16px; }
+.searchbar input { max-width: 520px; font-size: 15px; padding: 9px 13px; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .teachers { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 6px; }
 .teachers label {
@@ -162,6 +165,10 @@ ul.list li.off { opacity: .55; }
     出題台的「老師帳號」頁建立（需要伺服器權限，不能放在這個網頁）。
     刪除一律是「停用」，資料會保留（個資法：學生紀錄不做硬刪除）。
   </p>
+
+  <div class="searchbar">
+    <input id="search" type="search" placeholder="🔍 搜尋學生：姓名、電話、學號…" autocomplete="off">
+  </div>
 
   <div class="panes">
     <!-- ── 班級 ─────────────────────────────────────────────────────────── -->
@@ -196,6 +203,7 @@ ul.list li.off { opacity: .55; }
 let CLASSES = [], STUDENTS = [], TEACHERS = [], ENROLL = [], ASSIGN = [];
 let selClass = null, selStudent = null, mode = null;   // mode: class | student | new-class | new-student
 let selGrade = 7;   // the first cut: which 年級's classes are shown (國一 by default)
+let searchQ = "";   // when set, the 學生 pane shows global search results instead
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
@@ -259,6 +267,7 @@ function renderGradeTabs() {
   box.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
     selGrade = Number(b.dataset.grade);
     selClass = null; selStudent = null; mode = null;   // reset the downstream selection
+    clearSearch();
     renderAll();
   }));
 }
@@ -277,12 +286,53 @@ function renderClasses() {
   $("class-empty").style.display = shown.length ? "none" : "";
   $("class-empty").textContent = `${GRADE_NAME[selGrade] || ""}還沒有班級。`;
   ul.querySelectorAll("li").forEach((li) => li.addEventListener("click", () => {
-    selClass = li.dataset.id; selStudent = null; mode = "class"; renderAll();
+    selClass = li.dataset.id; selStudent = null; mode = "class"; clearSearch(); renderAll();
   }));
+}
+
+// leaving search returns to the browse view
+function clearSearch() { searchQ = ""; const si = $("search"); if (si) si.value = ""; }
+
+const studentRowHtml = (s) => `
+    <li data-id="${s.id}" class="${selStudent === s.id ? "on" : ""}${s.active ? "" : " off"}">
+      <span class="rowmain">
+        <span class="rowname">${esc(s.full_name)}</span>
+        <span class="rowmeta">${esc(s.student_no || "無學號")}${s.school ? " · " + esc(s.school) : ""}${
+          s.grade ? " · " + s.grade + " 年級" : ""}${(() => { const p = s.father_phone || s.mother_phone || s.home_phone; return p ? " · " + esc(p) : ""; })()}</span>
+      </span>
+      ${s.active ? "" : '<span class="pill">已停用</span>'}
+    </li>`;
+
+// name / 學號 / 就讀學校 substring, contact-name substring, or a ≥3-digit phone
+// run matched digits-only (so 0912345 finds 0912-345-678 across all 4 phone slots).
+function studentMatches(s, q) {
+  const ql = q.toLowerCase();
+  if ([s.full_name, s.student_no, s.school, s.father_name, s.mother_name, s.other_contact]
+      .some((v) => (v || "").toLowerCase().includes(ql))) return true;
+  const qd = q.replace(/\D/g, "");
+  if (qd.length >= 3) {
+    const phones = [s.father_phone, s.mother_phone, s.home_phone, s.other_contact].filter(Boolean).join(" ");
+    if (phones.replace(/\D/g, "").includes(qd)) return true;
+  }
+  return false;
 }
 
 function renderStudents() {
   const ul = $("student-list");
+  // ── search mode: global, ignores the selected 班級/年級 ──
+  if (searchQ) {
+    const rows = STUDENTS.filter((s) => studentMatches(s, searchQ))
+      .sort((a, b) => (a.student_no || "￿").localeCompare(b.student_no || "￿"));
+    $("students-title").firstChild.textContent = `搜尋「${searchQ}」· ${rows.length} 筆`;
+    $("btn-new-student").disabled = true;
+    $("student-empty").style.display = rows.length ? "none" : "";
+    $("student-empty").textContent = "找不到符合的學生。";
+    ul.innerHTML = rows.map(studentRowHtml).join("");
+    ul.querySelectorAll("li").forEach((li) => li.addEventListener("click", () => {
+      selStudent = li.dataset.id; mode = "student"; renderAll();
+    }));
+    return;
+  }
   const cls = CLASSES.find((c) => c.id === selClass);
   $("students-title").firstChild.textContent = cls ? `學生 · ${cls.name}` : "學生";
   $("btn-new-student").disabled = !selClass;
@@ -294,15 +344,7 @@ function renderStudents() {
   const rows = classStudents(selClass);
   $("student-empty").style.display = rows.length ? "none" : "";
   $("student-empty").textContent = "這個班級還沒有學生。";
-  ul.innerHTML = rows.map((s) => `
-    <li data-id="${s.id}" class="${selStudent === s.id ? "on" : ""}${s.active ? "" : " off"}">
-      <span class="rowmain">
-        <span class="rowname">${esc(s.full_name)}</span>
-        <span class="rowmeta">${esc(s.student_no || "無學號")}${s.school ? " · " + esc(s.school) : ""}${
-          s.grade ? " · " + s.grade + " 年級" : ""}${(() => { const p = s.father_phone || s.mother_phone || s.home_phone; return p ? " · " + esc(p) : ""; })()}</span>
-      </span>
-      ${s.active ? "" : '<span class="pill">已停用</span>'}
-    </li>`).join("");
+  ul.innerHTML = rows.map(studentRowHtml).join("");
   ul.querySelectorAll("li").forEach((li) => li.addEventListener("click", () => {
     selStudent = li.dataset.id; mode = "student"; renderAll();
   }));
@@ -509,6 +551,11 @@ async function refresh() { await loadAll(); renderAll(); }
   $("btn-new-student").addEventListener("click", () => {
     if (!selClass) return;
     mode = "new-student"; renderDetail();
+  });
+  $("search").addEventListener("input", (e) => {
+    searchQ = e.target.value.trim();
+    if (searchQ) { selStudent = null; mode = null; }   // leave the detail pane out of the way
+    renderStudents(); renderDetail();
   });
   try { await refresh(); } catch (e) { fail(e); }
 })();
