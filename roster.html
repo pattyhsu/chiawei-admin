@@ -209,7 +209,7 @@ async function loadAll() {
   const [cls, stu, prof, enr, asg] = await Promise.all([
     window.sb.from("classes").select("id,name,grade,subject,active").order("name"),
     window.sb.from("students")
-      .select("id,full_name,student_no,school,grade,guardian_name,guardian_phone,note,active")
+      .select("id,full_name,student_no,school,grade,father_name,father_phone,mother_name,mother_phone,home_phone,other_contact,note,active")
       .order("student_no", { nullsFirst: false }),
     window.sb.from("profiles").select("id,username,full_name,role,active").eq("role", "teacher"),
     window.sb.from("enrollments").select("id,student_id,class_id,active"),
@@ -262,7 +262,7 @@ function renderStudents() {
       <span class="rowmain">
         <span class="rowname">${esc(s.full_name)}</span>
         <span class="rowmeta">${esc(s.student_no || "無學號")}${s.school ? " · " + esc(s.school) : ""}${
-          s.grade ? " · " + s.grade + " 年級" : ""}${s.guardian_phone ? " · " + esc(s.guardian_phone) : ""}</span>
+          s.grade ? " · " + s.grade + " 年級" : ""}${(() => { const p = s.father_phone || s.mother_phone || s.home_phone; return p ? " · " + esc(p) : ""; })()}</span>
       </span>
       ${s.active ? "" : '<span class="pill">已停用</span>'}
     </li>`).join("");
@@ -370,10 +370,16 @@ function renderStudentForm(box, s) {
     </div>
     <div class="fld"><label>就讀學校</label><input id="s-school" value="${esc(s?.school || "")}" placeholder="示範國中"></div>
     <div class="row2">
-      <div class="fld"><label>家長姓名</label><input id="s-gname" value="${esc(s?.guardian_name || "")}" placeholder="陳先生"></div>
-      <div class="fld"><label>家長電話</label><input id="s-gphone" value="${esc(s?.guardian_phone || "")}" placeholder="0912-345-678"></div>
+      <div class="fld"><label>父 · 姓名</label><input id="s-fname" value="${esc(s?.father_name || "")}" placeholder="陳先生"></div>
+      <div class="fld"><label>父 · 電話</label><input id="s-fphone" value="${esc(s?.father_phone || "")}" placeholder="0912-345-678"></div>
     </div>
-    <div class="fld"><label>備註</label><textarea id="s-note" rows="2" placeholder="（座位、狀況、繳費提醒…）">${esc(s?.note || "")}</textarea></div>
+    <div class="row2">
+      <div class="fld"><label>母 · 姓名</label><input id="s-mname" value="${esc(s?.mother_name || "")}" placeholder="林女士"></div>
+      <div class="fld"><label>母 · 電話</label><input id="s-mphone" value="${esc(s?.mother_phone || "")}" placeholder="0922-333-444"></div>
+    </div>
+    <div class="fld"><label>家裡電話</label><input id="s-hphone" value="${esc(s?.home_phone || "")}" placeholder="037-123456"></div>
+    <div class="fld"><label>其他聯絡人</label><input id="s-other" value="${esc(s?.other_contact || "")}" placeholder="阿嬤 0933-…"></div>
+    <div class="fld"><label>備註</label><textarea id="s-note" rows="2" placeholder="（原校班級、座位、狀況、繳費提醒…）">${esc(s?.note || "")}</textarea></div>
     ${s ? `<p class="enrolled">就讀班級：${inClasses.length ? inClasses.map((c) => esc(c.name)).join("、") : "（無）"}</p>` : ""}
     <div class="actions">
       <button type="button" class="primary" id="s-save">${s ? "儲存" : "建立並加入班級"}</button>
@@ -387,7 +393,9 @@ function renderStudentForm(box, s) {
     const fields = {
       full_name: nul($("s-name").value), student_no: nul($("s-no").value),
       school: nul($("s-school").value), grade: num($("s-grade").value),
-      guardian_name: nul($("s-gname").value), guardian_phone: nul($("s-gphone").value),
+      father_name: nul($("s-fname").value), father_phone: nul($("s-fphone").value),
+      mother_name: nul($("s-mname").value), mother_phone: nul($("s-mphone").value),
+      home_phone: nul($("s-hphone").value), other_contact: nul($("s-other").value),
       note: nul($("s-note").value),
     };
     if (!fields.full_name) return fail("請輸入學生姓名");
