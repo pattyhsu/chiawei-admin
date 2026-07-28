@@ -131,6 +131,10 @@ ul.list li.off { opacity: .55; }
 .guardian .grow.one { grid-template-columns: 2.6em 1fr; }
 .guardian .glabel { font-size: 13px; color: var(--muted); font-weight: 600; text-align: right; }
 .guardian input { margin: 0; }
+/* grade filter tabs — the first cut, above the 班級 list */
+.gradetabs { display: flex; gap: 6px; margin-bottom: 12px; }
+.gradetabs button { flex: 1; font-size: 13px; padding: 6px 0; }
+.gradetabs button.on { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .teachers { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 6px; }
 .teachers label {
@@ -165,6 +169,7 @@ ul.list li.off { opacity: .55; }
       <h2>班級<span class="spacer"></span>
         <button type="button" class="small" id="btn-new-class">＋ 新增</button>
       </h2>
+      <div class="gradetabs" id="grade-tabs"></div>
       <ul class="list" id="class-list"></ul>
       <p class="empty" id="class-empty" style="display:none">還沒有班級，先新增一個。</p>
     </section>
@@ -190,6 +195,7 @@ ul.list li.off { opacity: .55; }
 // ── state ───────────────────────────────────────────────────────────────────
 let CLASSES = [], STUDENTS = [], TEACHERS = [], ENROLL = [], ASSIGN = [];
 let selClass = null, selStudent = null, mode = null;   // mode: class | student | new-class | new-student
+let selGrade = 7;   // the first cut: which 年級's classes are shown (國一 by default)
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
@@ -238,25 +244,38 @@ const studentClasses = (sid) => ENROLL
 
 // the subject-classes offered for a grade (國一 has no 理化), in a fixed order.
 // A student picks a subset via 修習科目 checkboxes = their enrollments.
-const SUBJ_ORDER = { "國文": 0, "英文": 1, "數學": 2, "理化": 3 };
+const SUBJ_ORDER = { "國文": 0, "英文": 1, "數學": 2, "自然": 3 };
 const GRADE_NAME = { 7: "國一", 8: "國二", 9: "國三" };
 const gradeSubjectClasses = (grade) => CLASSES
   .filter((c) => c.active && c.grade === grade && c.subject)
   .sort((a, b) => (SUBJ_ORDER[a.subject] ?? 9) - (SUBJ_ORDER[b.subject] ?? 9));
 
 // ── render ──────────────────────────────────────────────────────────────────
+// grade tabs — the first cut. Pick a 年級, then its 班級 show below.
+function renderGradeTabs() {
+  const box = $("grade-tabs");
+  box.innerHTML = [7, 8, 9].map((g) =>
+    `<button type="button" data-grade="${g}" class="${selGrade === g ? "on" : ""}">${GRADE_NAME[g]}</button>`).join("");
+  box.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+    selGrade = Number(b.dataset.grade);
+    selClass = null; selStudent = null; mode = null;   // reset the downstream selection
+    renderAll();
+  }));
+}
+
 function renderClasses() {
   const ul = $("class-list");
-  ul.innerHTML = CLASSES.map((c) => `
+  const shown = CLASSES.filter((c) => c.grade === selGrade);
+  ul.innerHTML = shown.map((c) => `
     <li data-id="${c.id}" class="${selClass === c.id ? "on" : ""}${c.active ? "" : " off"}">
       <span class="rowmain">
         <span class="rowname">${esc(c.name)}</span>
-        <span class="rowmeta">${c.grade ? c.grade + " 年級" : "—"}${c.subject ? " · " + esc(c.subject) : ""}
-          · ${classStudents(c.id).length} 人</span>
+        <span class="rowmeta">${c.subject ? esc(c.subject) : "—"} · ${classStudents(c.id).length} 人</span>
       </span>
       ${c.active ? "" : '<span class="pill">已停用</span>'}
     </li>`).join("");
-  $("class-empty").style.display = CLASSES.length ? "none" : "";
+  $("class-empty").style.display = shown.length ? "none" : "";
+  $("class-empty").textContent = `${GRADE_NAME[selGrade] || ""}還沒有班級。`;
   ul.querySelectorAll("li").forEach((li) => li.addEventListener("click", () => {
     selClass = li.dataset.id; selStudent = null; mode = "class"; renderAll();
   }));
@@ -267,7 +286,11 @@ function renderStudents() {
   const cls = CLASSES.find((c) => c.id === selClass);
   $("students-title").firstChild.textContent = cls ? `學生 · ${cls.name}` : "學生";
   $("btn-new-student").disabled = !selClass;
-  if (!selClass) { ul.innerHTML = ""; $("student-empty").style.display = ""; return; }
+  if (!selClass) {
+    ul.innerHTML = ""; $("student-empty").style.display = "";
+    $("student-empty").textContent = "← 先選一個班級。";
+    return;
+  }
   const rows = classStudents(selClass);
   $("student-empty").style.display = rows.length ? "none" : "";
   $("student-empty").textContent = "這個班級還沒有學生。";
@@ -302,7 +325,7 @@ function renderClassForm(box, c) {
   box.innerHTML = `
     <div class="fld"><label>班級名稱</label><input id="f-name" value="${esc(c?.name || "")}" placeholder="八年級數學班"></div>
     <div class="row2">
-      <div class="fld"><label>年級</label><input id="f-grade" type="number" min="1" max="12" value="${c?.grade ?? ""}" placeholder="8"></div>
+      <div class="fld"><label>年級</label><input id="f-grade" type="number" min="1" max="12" value="${c?.grade ?? selGrade ?? ""}"></div>
       <div class="fld"><label>科目</label><input id="f-subject" value="${esc(c?.subject || "")}" placeholder="數學"></div>
     </div>
     ${c ? `
@@ -389,15 +412,15 @@ function renderStudentForm(box, s) {
     <label>家長聯絡</label>
     <div class="guardian">
       <div class="grow"><span class="glabel">父</span>
-        <input id="s-fname" value="${esc(s?.father_name || "")}" placeholder="姓名">
-        <input id="s-fphone" value="${esc(s?.father_phone || "")}" placeholder="電話"></div>
+        <input id="s-fname" value="${esc(s?.father_name || "")}">
+        <input id="s-fphone" value="${esc(s?.father_phone || "")}"></div>
       <div class="grow"><span class="glabel">母</span>
-        <input id="s-mname" value="${esc(s?.mother_name || "")}" placeholder="姓名">
-        <input id="s-mphone" value="${esc(s?.mother_phone || "")}" placeholder="電話"></div>
+        <input id="s-mname" value="${esc(s?.mother_name || "")}">
+        <input id="s-mphone" value="${esc(s?.mother_phone || "")}"></div>
       <div class="grow one"><span class="glabel">家裡</span>
-        <input id="s-hphone" value="${esc(s?.home_phone || "")}" placeholder="市話"></div>
+        <input id="s-hphone" value="${esc(s?.home_phone || "")}"></div>
       <div class="grow one"><span class="glabel">其他</span>
-        <input id="s-other" value="${esc(s?.other_contact || "")}" placeholder="其他聯絡人"></div>
+        <input id="s-other" value="${esc(s?.other_contact || "")}"></div>
     </div>
     <div class="fld"><label>備註</label><textarea id="s-note" rows="2" placeholder="原校班級、座位、繳費提醒…">${esc(s?.note || "")}</textarea></div>
     ${subjClasses.length ? `<label>修習科目${gradeForForm ? `（${GRADE_NAME[gradeForForm] || gradeForForm + "年級"}）` : ""}</label>
@@ -473,7 +496,7 @@ async function syncSubjects(studentId) {
   }
 }
 
-function renderAll() { renderClasses(); renderStudents(); renderDetail(); }
+function renderAll() { renderGradeTabs(); renderClasses(); renderStudents(); renderDetail(); }
 async function refresh() { await loadAll(); renderAll(); }
 
 // ── boot ────────────────────────────────────────────────────────────────────
