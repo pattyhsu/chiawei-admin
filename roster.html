@@ -125,6 +125,12 @@ ul.list li.off { opacity: .55; }
 }
 .ok { color: var(--ok); font-size: 13px; }
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+/* compact 家長聯絡 block: one small label + inputs per row */
+.guardian { display: grid; gap: 6px; margin-bottom: 12px; }
+.guardian .grow { display: grid; grid-template-columns: 2.6em 1fr 1fr; gap: 8px; align-items: center; }
+.guardian .grow.one { grid-template-columns: 2.6em 1fr; }
+.guardian .glabel { font-size: 13px; color: var(--muted); font-weight: 600; text-align: right; }
+.guardian input { margin: 0; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 .teachers { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 6px; }
 .teachers label {
@@ -363,23 +369,26 @@ function renderStudentForm(box, s) {
   $("detail-title").textContent = s ? "編輯學生" : "新增學生";
   const inClasses = s ? studentClasses(s.id) : [];
   box.innerHTML = `
-    <div class="fld"><label>姓名</label><input id="s-name" value="${esc(s?.full_name || "")}" placeholder="陳小明"></div>
+    <div class="fld"><label>姓名</label><input id="s-name" value="${esc(s?.full_name || "")}"></div>
     <div class="row2">
-      <div class="fld"><label>學號</label><input id="s-no" value="${esc(s?.student_no || "")}" placeholder="114-8A-01"></div>
-      <div class="fld"><label>年級</label><input id="s-grade" type="number" min="1" max="12" value="${s?.grade ?? ""}" placeholder="8"></div>
+      <div class="fld"><label>學號</label><input id="s-no" value="${esc(s?.student_no || "")}"></div>
+      <div class="fld"><label>年級</label><input id="s-grade" type="number" min="1" max="12" value="${s?.grade ?? ""}"></div>
     </div>
-    <div class="fld"><label>就讀學校</label><input id="s-school" value="${esc(s?.school || "")}" placeholder="示範國中"></div>
-    <div class="row2">
-      <div class="fld"><label>父 · 姓名</label><input id="s-fname" value="${esc(s?.father_name || "")}" placeholder="陳先生"></div>
-      <div class="fld"><label>父 · 電話</label><input id="s-fphone" value="${esc(s?.father_phone || "")}" placeholder="0912-345-678"></div>
+    <div class="fld"><label>就讀學校</label><input id="s-school" value="${esc(s?.school || "")}"></div>
+    <label>家長聯絡</label>
+    <div class="guardian">
+      <div class="grow"><span class="glabel">父</span>
+        <input id="s-fname" value="${esc(s?.father_name || "")}" placeholder="姓名">
+        <input id="s-fphone" value="${esc(s?.father_phone || "")}" placeholder="電話"></div>
+      <div class="grow"><span class="glabel">母</span>
+        <input id="s-mname" value="${esc(s?.mother_name || "")}" placeholder="姓名">
+        <input id="s-mphone" value="${esc(s?.mother_phone || "")}" placeholder="電話"></div>
+      <div class="grow one"><span class="glabel">家裡</span>
+        <input id="s-hphone" value="${esc(s?.home_phone || "")}" placeholder="市話"></div>
+      <div class="grow one"><span class="glabel">其他</span>
+        <input id="s-other" value="${esc(s?.other_contact || "")}" placeholder="其他聯絡人"></div>
     </div>
-    <div class="row2">
-      <div class="fld"><label>母 · 姓名</label><input id="s-mname" value="${esc(s?.mother_name || "")}" placeholder="林女士"></div>
-      <div class="fld"><label>母 · 電話</label><input id="s-mphone" value="${esc(s?.mother_phone || "")}" placeholder="0922-333-444"></div>
-    </div>
-    <div class="fld"><label>家裡電話</label><input id="s-hphone" value="${esc(s?.home_phone || "")}" placeholder="037-123456"></div>
-    <div class="fld"><label>其他聯絡人</label><input id="s-other" value="${esc(s?.other_contact || "")}" placeholder="阿嬤 0933-…"></div>
-    <div class="fld"><label>備註</label><textarea id="s-note" rows="2" placeholder="（原校班級、座位、狀況、繳費提醒…）">${esc(s?.note || "")}</textarea></div>
+    <div class="fld"><label>備註</label><textarea id="s-note" rows="2" placeholder="原校班級、座位、繳費提醒…">${esc(s?.note || "")}</textarea></div>
     ${s ? `<p class="enrolled">就讀班級：${inClasses.length ? inClasses.map((c) => esc(c.name)).join("、") : "（無）"}</p>` : ""}
     <div class="actions">
       <button type="button" class="primary" id="s-save">${s ? "儲存" : "建立並加入班級"}</button>
