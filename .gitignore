@@ -1,0 +1,9 @@
+# ⚠️ This repo is PUBLIC (GitHub Pages). Never commit real PII.
+# Roster / student data spreadsheets and exports stay local only.
+*.xlsx
+*.xls
+*.csv
+*.tsv
+*名單*
+*名冊*
+*.numbers
