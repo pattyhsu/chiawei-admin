@@ -236,6 +236,14 @@ const studentClasses = (sid) => ENROLL
   .filter((e) => e.student_id === sid && e.active)
   .map((e) => CLASSES.find((c) => c.id === e.class_id)).filter(Boolean);
 
+// the subject-classes offered for a grade (國一 has no 理化), in a fixed order.
+// A student picks a subset via 修習科目 checkboxes = their enrollments.
+const SUBJ_ORDER = { "國文": 0, "英文": 1, "數學": 2, "理化": 3 };
+const GRADE_NAME = { 7: "國一", 8: "國二", 9: "國三" };
+const gradeSubjectClasses = (grade) => CLASSES
+  .filter((c) => c.active && c.grade === grade && c.subject)
+  .sort((a, b) => (SUBJ_ORDER[a.subject] ?? 9) - (SUBJ_ORDER[b.subject] ?? 9));
+
 // ── render ──────────────────────────────────────────────────────────────────
 function renderClasses() {
   const ul = $("class-list");
@@ -367,12 +375,15 @@ async function saveTeachers(cid) {
 
 function renderStudentForm(box, s) {
   $("detail-title").textContent = s ? "編輯學生" : "新增學生";
-  const inClasses = s ? studentClasses(s.id) : [];
+  const selCls = CLASSES.find((c) => c.id === selClass);
+  const gradeForForm = s ? s.grade : (selCls ? selCls.grade : null);
+  const subjClasses = gradeForForm ? gradeSubjectClasses(gradeForForm) : [];
+  const enrolledIds = new Set((s ? studentClasses(s.id) : []).map((c) => c.id));
   box.innerHTML = `
     <div class="fld"><label>姓名</label><input id="s-name" value="${esc(s?.full_name || "")}"></div>
     <div class="row2">
       <div class="fld"><label>學號</label><input id="s-no" value="${esc(s?.student_no || "")}"></div>
-      <div class="fld"><label>年級</label><input id="s-grade" type="number" min="1" max="12" value="${s?.grade ?? ""}"></div>
+      <div class="fld"><label>年級</label><input id="s-grade" type="number" min="1" max="12" value="${s?.grade ?? (selCls?.grade ?? "")}"></div>
     </div>
     <div class="fld"><label>就讀學校</label><input id="s-school" value="${esc(s?.school || "")}"></div>
     <label>家長聯絡</label>
@@ -389,11 +400,12 @@ function renderStudentForm(box, s) {
         <input id="s-other" value="${esc(s?.other_contact || "")}" placeholder="其他聯絡人"></div>
     </div>
     <div class="fld"><label>備註</label><textarea id="s-note" rows="2" placeholder="原校班級、座位、繳費提醒…">${esc(s?.note || "")}</textarea></div>
-    ${s ? `<p class="enrolled">就讀班級：${inClasses.length ? inClasses.map((c) => esc(c.name)).join("、") : "（無）"}</p>` : ""}
+    ${subjClasses.length ? `<label>修習科目${gradeForForm ? `（${GRADE_NAME[gradeForForm] || gradeForForm + "年級"}）` : ""}</label>
+    <div class="teachers" style="margin-bottom:12px">${subjClasses.map((c) =>
+      `<label><input type="checkbox" data-subj="${c.id}" ${(s ? enrolledIds.has(c.id) : true) ? "checked" : ""}>${esc(c.subject)}</label>`).join("")}</div>` : ""}
     <div class="actions">
-      <button type="button" class="primary" id="s-save">${s ? "儲存" : "建立並加入班級"}</button>
-      ${s ? `<button type="button" id="s-unenroll">移出這一班</button>
-             <button type="button" class="danger" id="s-toggle">${s.active ? "停用" : "啟用"}</button>` : ""}
+      <button type="button" class="primary" id="s-save">${s ? "儲存" : "建立學生"}</button>
+      ${s ? `<button type="button" class="danger" id="s-toggle">${s.active ? "停用" : "啟用"}</button>` : ""}
       <button type="button" id="s-cancel">取消</button>
     </div>`;
 
@@ -412,10 +424,11 @@ function renderStudentForm(box, s) {
       if (s) {
         const { error } = await window.sb.from("students").update(fields).eq("id", s.id);
         if (error) throw error;
+        await syncSubjects(s.id);
       } else {
         const { data, error } = await window.sb.from("students").insert(fields).select("id").single();
         if (error) throw error;
-        await enroll(data.id, selClass);
+        await syncSubjects(data.id);
         selStudent = data.id; mode = "student";
       }
       await refresh();
@@ -423,16 +436,6 @@ function renderStudentForm(box, s) {
   });
 
   if (s) {
-    $("s-unenroll").addEventListener("click", async () => {
-      clearErr();
-      try {
-        const { error } = await window.sb.from("enrollments")
-          .delete().eq("student_id", s.id).eq("class_id", selClass);
-        if (error) throw error;
-        selStudent = null; mode = "class";
-        await refresh();
-      } catch (e) { fail(e); }
-    });
     $("s-toggle").addEventListener("click", async () => {
       clearErr();
       try {
@@ -452,6 +455,22 @@ async function enroll(studentId, classId) {
     .upsert({ student_id: studentId, class_id: classId, active: true },
             { onConflict: "student_id,class_id" });
   if (error) throw error;
+}
+
+// Sync a student's enrollments to the checked 修習科目 boxes. `have` reads the
+// pre-refresh ENROLL cache — correct for an existing student; empty for a brand
+// new one (not in the cache yet), so all checked subjects get enrolled.
+async function syncSubjects(studentId) {
+  const boxes = [...document.querySelectorAll("[data-subj]")];
+  const want = new Set(boxes.filter((b) => b.checked).map((b) => b.dataset.subj));
+  const have = new Set(studentClasses(studentId).map((c) => c.id));
+  for (const id of want) if (!have.has(id)) await enroll(studentId, id);
+  const del = [...have].filter((id) => !want.has(id));
+  if (del.length) {
+    const { error } = await window.sb.from("enrollments")
+      .delete().eq("student_id", studentId).in("class_id", del);
+    if (error) throw error;
+  }
 }
 
 function renderAll() { renderClasses(); renderStudents(); renderDetail(); }
