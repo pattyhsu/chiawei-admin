@@ -158,9 +158,35 @@ entirely: reads returned 0 rows, `INSERT` raised `42501`, `UPDATE`/`DELETE` affe
 0 rows. If you add another page here that touches student data, re-prove the same —
 do not lean on the gate.
 
-**Teacher logins are NOT managed here** and cannot be: creating one needs the
-Supabase Auth Admin API (`service_role`). That lives in the 出題台 app at
-`/app/teachers`, on localhost.
+## 老師帳號 (`teachers.html`) — the one page with a server hop
+
+Moved here from the 出題台 app on 2026-08-05; `/app/teachers` and its
+`/api/staff/teachers` route were deleted in the same change, so there is one
+surface and nothing to drift.
+
+Most of it needs no server at all — 指派班級, 停用/啟用 and renaming are plain
+PostgREST writes under grants that already existed
+(`grant insert, delete on class_teachers`, `grant update (active, full_name) on
+profiles`), audited by a trigger added in `20260805000002_profiles_audit.sql`
+(pgTAP `14`). Those writes are actually attributed *better* here than on the
+server, which wrote as `service_role` and left a null actor in the audit row.
+
+**Creating an account is the one thing a browser genuinely cannot do**: it needs
+GoTrue's `/admin/users` (service_role), and it needs to write `profiles.role`,
+which is granted to nobody. So exactly that operation goes through a Supabase
+**Edge Function**, `teacher-create` (source in
+`chiawei/supabase/functions/teacher-create/`) — the only `service_role` holder
+reachable from the internet in this whole system. It is deliberately tiny:
+
+- verifies the caller's JWT, then **re-reads `profiles.role` + `active`** (a JWT
+  stays valid after 停用; the profile read is what makes revocation bite)
+- `role` is **hard-coded to `'teacher'`** — it cannot mint an owner whatever the
+  caller sends
+- rate-limited to 10 creations/hour per owner, counted off `audit_log`
+- the generated password is returned once and never stored, logged or audited
+
+Do not add verbs to that function. Every one widens the blast radius of a bug in
+its authorization check; anything that RLS can do should stay in the page.
 
 ## DNS
 

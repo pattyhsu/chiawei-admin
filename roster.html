@@ -21,9 +21,10 @@
          FK into them is NO ACTION so a hard delete could not work anyway
        * every write lands an audit row via a security-definer trigger
 
-     Teacher LOGINS are deliberately NOT here — creating one needs the Supabase
-     Auth Admin API (service_role), which must never reach a browser. That lives
-     in the 出題台 app at /app/teachers (localhost).
+     Teacher LOGINS live on teachers.html (moved off the 出題台 app 2026-08-05).
+     Creating one still needs the Supabase Auth Admin API (service_role), which
+     must never reach a browser — that one operation goes through the
+     `teacher-create` Edge Function; everything else there is plain RLS'd writes.
 
      Load order is load-bearing: auth.js hides <body> at parse time and init()
      must not run until authGate() reaches a verdict. -->
@@ -161,8 +162,8 @@ ul.list li.off { opacity: .55; }
   <div id="err" class="err" style="display:none"></div>
 
   <p class="hint" style="margin-top:0">
-    這裡維護<strong>班級</strong>、<strong>學生</strong>和<strong>誰教哪一班</strong>。老師登入帳號請到
-    出題台的「老師帳號」頁建立（需要伺服器權限，不能放在這個網頁）。
+    這裡維護<strong>班級</strong>、<strong>學生</strong>和<strong>誰教哪一班</strong>。老師的登入帳號在
+    <a href="teachers.html">老師帳號</a>。
     刪除一律是「停用」，資料會保留（個資法：學生紀錄不做硬刪除）。
   </p>
 
@@ -374,7 +375,7 @@ function renderClassForm(box, c) {
       <div class="fld">
         <label>任教老師</label>
         ${TEACHERS.length === 0
-          ? '<p class="hint">還沒有老師帳號。請到出題台的「老師帳號」頁建立。</p>'
+          ? '<p class="hint">還沒有老師帳號。請到<a href="teachers.html">老師帳號</a>建立。</p>'
           : `<div class="teachers">${TEACHERS.map((t) => `
               <label><input type="checkbox" data-teacher="${t.id}"
                 ${ASSIGN.some((a) => a.class_id === c.id && a.profile_id === t.id) ? "checked" : ""}>

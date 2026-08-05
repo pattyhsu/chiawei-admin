@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>家偉補習班 · 老師帳號</title>
+<!-- 老師帳號 — 建立登入、指派任教班級、停用離職帳號.
+     Hand-written, following roster.html. Moved here from the 出題台 app
+     (/app/teachers) on 2026-08-05; that page and its /api/staff/teachers route
+     were deleted in the same change — one surface, no drift.
+
+     ⚠️ THIS PAGE MINTS CREDENTIALS. That is a step beyond what roster.html does,
+     and it is worth being clear about what protects it:
+
+       * 停用/啟用, rename, 指派班級 are PLAIN TABLE WRITES under RLS + column
+         grants — `grant update (active, full_name) on profiles` and
+         `grant insert, delete on class_teachers`, owner/admin policies only
+         (migrations 20260728000002 + 20260805000002, pgTAP 10 + 14).
+       * profiles.role is granted to NOBODY. No client, owner included, can
+         promote anyone. That is the ceiling the whole role system rests on.
+       * profiles has no INSERT or DELETE grant either — accounts are created by
+         the `teacher-create` Edge Function (which holds service_role server-side
+         and hard-codes role='teacher'), and are never deleted, only 停用.
+       * every write lands an audit row via a security-definer trigger, with the
+         signed-in owner as the actor.
+
+     The generated password is shown ONCE and is never stored anywhere — not in
+     the database, not in the audit row, not in this page's state after dismiss.
+
+     Load order is load-bearing: auth.js hides <body> at parse time and the boot
+     block must not run until authGate() reaches a verdict. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sb.js"></script>
+<script src="auth.js"></script>
+<style>
+:root {
+  /* Brand palette (chiawei CLAUDE.md): 寶藍 primary, 黃/橘 accents.
+     Copied per-page, matching roster.html — this repo has no shared stylesheet. */
+  --brand: #2547c7;
+  --brand-yellow: #f8c414;
+  --brand-orange: #ef5226;
+  --bg: #f6f7fb;
+  --surface: #fff;
+  --ink: #1b1f2a;
+  --muted: #6b7280;
+  --line: #e3e6ee;
+  --danger: #c0362c;
+  --ok: #1e7d46;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--bg);
+  font-family: "PingFang TC", "Noto Sans TC", system-ui, -apple-system, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+header {
+  display: flex; align-items: center; gap: 16px;
+  padding: 10px 16px; background: var(--surface);
+  border-bottom: 2px solid var(--brand);
+  position: sticky; top: 0; z-index: 5; flex-wrap: wrap;
+}
+header .brand { font-weight: 700; color: var(--brand); }
+header .spacer { flex: 1; }
+header .who { font-size: 13px; color: var(--muted); }
+header a.home { font-size: 13px; color: var(--muted); text-decoration: none; }
+header a.home:hover { color: var(--brand); }
+main { max-width: 860px; margin: 0 auto; padding: 20px 16px 80px; }
+
+button {
+  font: inherit; font-size: 14px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); color: var(--ink); padding: 7px 13px;
+}
+button:hover { border-color: var(--brand); }
+button.primary {
+  background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600;
+}
+button.primary:hover { filter: brightness(1.08); }
+button.small { font-size: 13px; padding: 4px 10px; }
+button.danger { color: var(--danger); }
+button:disabled { opacity: .5; cursor: default; }
+
+input, select {
+  font: inherit; font-size: 14px; width: 100%;
+  padding: 7px 10px; border: 1px solid var(--line);
+  border-radius: 8px; background: #fff; color: var(--ink);
+}
+input:focus, select:focus { outline: 2px solid var(--brand); border-color: transparent; }
+label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; font-weight: 600; }
+.fld { margin-bottom: 12px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+
+.pane {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 12px; padding: 14px 16px; margin-bottom: 16px;
+}
+.pane h2 {
+  font-size: 14px; color: var(--brand); margin: 0 0 10px;
+  display: flex; align-items: center; gap: 8px;
+}
+.pane h2 .spacer { flex: 1; }
+.hint { font-size: 12px; color: var(--muted); line-height: 1.7; }
+
+ul.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+ul.list li {
+  border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+ul.list li.off { opacity: .55; }
+.rowmain { flex: 1; min-width: 180px; }
+.rowname { font-weight: 600; font-size: 14px; }
+.rowmeta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.pill {
+  font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  background: #fff6e0; color: #9a6b00; font-weight: 700;
+}
+.empty { font-size: 13px; color: var(--muted); padding: 8px 2px; }
+.err {
+  background: #fdecea; border: 1px solid #f5c2bd; color: var(--danger);
+  border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 12px;
+}
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* the one-time password panel — wording carried over from the 出題台 page it replaces */
+.issued {
+  background: #eef1fc; border: 1px solid var(--brand);
+  border-radius: 10px; padding: 12px 14px; margin-bottom: 16px;
+}
+.issued strong { display: block; font-size: 14px; margin-bottom: 6px; }
+.issued code {
+  font-size: 18px; font-weight: 700; letter-spacing: .04em;
+  background: #fff; border: 1px solid var(--line); border-radius: 6px;
+  padding: 4px 10px; display: inline-block; margin: 2px 0 8px;
+  user-select: all;
+}
+.issued p { margin: 0 0 8px; font-size: 13px; }
+.issued .warn { color: var(--danger); font-weight: 600; }
+
+/* 指派班級 checkbox grid */
+.classpick {
+  flex-basis: 100%; margin-top: 10px; padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+.classpick .grid { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 10px; }
+.classpick label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; color: var(--ink); font-weight: 400; margin: 0;
+}
+.classpick input { width: auto; }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">家偉補習班 · 老師帳號</span>
+  <a class="home" href="index.html">← 管理後台</a>
+  <span class="spacer"></span>
+  <span class="who" id="who"></span>
+  <button type="button" id="btn-signout">登出</button>
+</header>
+
+<main>
+  <div id="err" class="err" style="display:none"></div>
+
+  <p class="hint" style="margin-top:0">
+    建立老師登入、指派任教班級、停用離職帳號。班級與學生名冊在
+    <a href="roster.html">名冊</a>。老師只看得到自己任教班級的學生與成績。
+    帳號一律<strong>停用</strong>而不刪除，過去出過的卷和批改紀錄才留得住。
+  </p>
+
+  <div id="issued"></div>
+
+  <section class="pane">
+    <h2>＋ 新增老師帳號 <span class="spacer"></span>
+      <button type="button" id="btn-toggle-new" class="small">展開</button>
+    </h2>
+    <div id="newform" style="display:none">
+      <div class="row2">
+        <div class="fld">
+          <label for="f-username">帳號 Username</label>
+          <input id="f-username" type="text" placeholder="wang" autocomplete="off" autocapitalize="off" spellcheck="false">
+        </div>
+        <div class="fld">
+          <label for="f-fullname">姓名</label>
+          <input id="f-fullname" type="text" placeholder="王老師" autocomplete="off">
+        </div>
+      </div>
+      <p class="hint" style="margin-top:0">
+        帳號只能用英文小寫、數字、<code>. _ -</code>（2–32 字）。
+        登入時只要輸入帳號，不用打 <code>@chiawei.local</code>。
+        密碼由系統產生，<strong>只會顯示一次</strong>。
+      </p>
+      <div class="actions" style="margin-top:10px">
+        <button type="button" id="btn-create" class="primary">建立帳號</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="pane">
+    <h2>帳號列表</h2>
+    <ul class="list" id="stafflist"></ul>
+  </section>
+</main>
+
+<script>
+// ── helpers (same shape as roster.html) ─────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// Error codes the teacher-create function can return. Carried over from the
+// 出題台 page's ERROR_LABEL, plus the ones it never mapped.
+const ERROR_LABEL = {
+  bad_username: "帳號只能用英文小寫、數字、. _ -（2–32 字）",
+  username_taken: "這個帳號已經有人用了",
+  auth_create_failed: "建立登入失敗（帳號可能已存在於登入系統）",
+  profile_create_failed: "建立帳號資料失敗，請再試一次",
+  rate_limited: "建立次數過於頻繁，請稍後再試",
+  forbidden: "只有負責人／管理員可以建立帳號",
+  deactivated: "你的帳號已停用",
+  unauthenticated: "登入已過期，請重新登入",
+  bad_request: "欄位不完整",
+};
+
+function fail(e) {
+  const box = $("err");
+  // Surface the DB's own message: with RLS as the boundary, a refusal here is
+  // information (42501 = the policy said no), not noise to swallow.
+  const code = e && e.code;
+  box.textContent = "操作失敗：" + (ERROR_LABEL[code] || e?.message || e);
+  box.style.display = "";
+  box.scrollIntoView({ block: "nearest" });
+  setTimeout(() => (box.style.display = "none"), 8000);
+}
+const clearErr = () => ($("err").style.display = "none");
+
+const ROLE_LABEL = { owner: "負責人", admin: "管理員", teacher: "老師" };
+
+// ── state ───────────────────────────────────────────────────────────────────
+let STAFF = [], CLASSES = [], ASSIGN = [];
+let editing = null;      // profile id whose 指派班級 grid is open
+let draftClasses = [];   // checkbox state while editing
+
+async function loadAll() {
+  const [prof, cls, asg] = await Promise.all([
+    window.sb.from("profiles").select("id,username,full_name,role,active")
+      .in("role", ["owner", "admin", "teacher"]).order("role").order("username"),
+    window.sb.from("classes").select("id,name,grade,subject").eq("active", true).order("name"),
+    window.sb.from("class_teachers").select("profile_id,class_id"),
+  ]);
+  for (const r of [prof, cls, asg]) if (r.error) throw r.error;
+  STAFF = prof.data; CLASSES = cls.data; ASSIGN = asg.data;
+}
+
+const classesOf = (pid) => ASSIGN.filter((a) => a.profile_id === pid).map((a) => a.class_id);
+const className = (cid) => (CLASSES.find((c) => c.id === cid) || {}).name || "（已停用班級）";
+
+function render() {
+  const ul = $("stafflist");
+  if (!STAFF.length) { ul.innerHTML = '<li class="empty">還沒有帳號。</li>'; return; }
+
+  ul.innerHTML = STAFF.map((r) => {
+    const mine = classesOf(r.id);
+    const isTeacher = r.role === "teacher";
+    const meta = [esc(r.username || "—"), ROLE_LABEL[r.role] || esc(r.role)];
+    if (isTeacher) meta.push(mine.length ? mine.map((c) => esc(className(c))).join("、") : "尚未指派班級");
+
+    const picker = editing === r.id ? `
+      <div class="classpick">
+        <div class="grid">${
+          CLASSES.length
+            ? CLASSES.map((c) => `<label><input type="checkbox" data-cls="${esc(c.id)}"${
+                draftClasses.includes(c.id) ? " checked" : ""}> ${esc(c.name)}</label>`).join("")
+            : '<span class="empty">還沒有班級。請先到<a href="roster.html">名冊</a>建立班級。</span>'
+        }</div>
+        <div class="actions">
+          <button type="button" class="primary small" data-save="${esc(r.id)}">儲存</button>
+          <button type="button" class="small" data-cancel="1">取消</button>
+        </div>
+      </div>` : "";
+
+    return `<li class="${r.active ? "" : "off"}">
+      <div class="rowmain">
+        <div class="rowname">${esc(r.full_name || "—")}${
+          r.active ? "" : ' <span class="pill">已停用</span>'}</div>
+        <div class="rowmeta">${meta.join(" · ")}</div>
+      </div>
+      <div class="actions">
+        ${isTeacher && editing !== r.id
+            ? `<button type="button" class="small" data-assign="${esc(r.id)}">指派班級</button>` : ""}
+        ${r.role !== "owner"
+            ? `<button type="button" class="small ${r.active ? "danger" : ""}" data-active="${esc(r.id)}" data-to="${r.active ? "0" : "1"}">${r.active ? "停用" : "啟用"}</button>` : ""}
+      </div>
+      ${picker}
+    </li>`;
+  }).join("");
+
+  ul.querySelectorAll("[data-assign]").forEach((el) => el.addEventListener("click", () => {
+    editing = el.dataset.assign; draftClasses = classesOf(editing); render();
+  }));
+  ul.querySelectorAll("[data-cancel]").forEach((el) => el.addEventListener("click", () => {
+    editing = null; render();
+  }));
+  ul.querySelectorAll("[data-cls]").forEach((el) => el.addEventListener("change", () => {
+    const id = el.dataset.cls;
+    draftClasses = el.checked ? [...draftClasses, id] : draftClasses.filter((x) => x !== id);
+  }));
+  ul.querySelectorAll("[data-save]").forEach((el) => el.addEventListener("click", () => saveClasses(el.dataset.save)));
+  ul.querySelectorAll("[data-active]").forEach((el) => el.addEventListener("click", () =>
+    setActive(el.dataset.active, el.dataset.to === "1")));
+}
+
+async function refresh() { await loadAll(); render(); }
+
+// ── writes ──────────────────────────────────────────────────────────────────
+
+// Diff, don't delete-then-insert: a full replace briefly leaves the teacher with
+// no classes, and every removal/addition is separately audited by the trigger.
+async function saveClasses(pid) {
+  clearErr();
+  try {
+    const have = classesOf(pid);
+    const add = draftClasses.filter((c) => !have.includes(c));
+    const del = have.filter((c) => !draftClasses.includes(c));
+    if (del.length) {
+      const { error } = await window.sb.from("class_teachers")
+        .delete().eq("profile_id", pid).in("class_id", del);
+      if (error) throw error;
+    }
+    if (add.length) {
+      const { error } = await window.sb.from("class_teachers")
+        .insert(add.map((class_id) => ({ profile_id: pid, class_id })));
+      if (error) throw error;
+    }
+    editing = null;
+    await refresh();
+  } catch (e) { fail(e); }
+}
+
+async function setActive(pid, active) {
+  clearErr();
+  const who = STAFF.find((s) => s.id === pid);
+  if (!active && !confirm(`確定停用「${who?.full_name || who?.username}」？\n\n他將無法再登入，但過去的卷與批改紀錄都會保留。`)) return;
+  try {
+    // RLS denies a non-owner silently (0 rows, no error), so re-read and check
+    // rather than trusting the absence of an error.
+    const { error } = await window.sb.from("profiles").update({ active }).eq("id", pid);
+    if (error) throw error;
+    await refresh();
+    const now = STAFF.find((s) => s.id === pid);
+    if (now && now.active !== active) throw { message: "沒有權限變更這個帳號" };
+  } catch (e) { fail(e); }
+}
+
+async function createTeacher() {
+  clearErr();
+  const username = $("f-username").value.trim().toLowerCase();
+  const full_name = $("f-fullname").value.trim();
+  if (!username || !full_name) return fail({ code: "bad_request" });
+
+  const btn = $("btn-create");
+  btn.disabled = true; btn.textContent = "建立中…";
+  try {
+    // The ONLY non-PostgREST call on this site. Creating a login needs the Auth
+    // Admin API (service_role), so it lives in the teacher-create Edge Function;
+    // supabase-js attaches the signed-in session's JWT, which the function
+    // re-checks against profiles.role before doing anything.
+    const { data, error } = await window.sb.functions.invoke("teacher-create", {
+      body: { username, full_name },
+    });
+    // A non-2xx from an Edge Function arrives as FunctionsHttpError with the
+    // body on error.context — dig the code out so ERROR_LABEL can speak.
+    if (error) {
+      let code = null;
+      try { code = (await error.context?.json())?.error; } catch { /* no JSON body */ }
+      throw { code, message: error.message };
+    }
+    if (!data || !data.ok) throw { code: data?.error };
+
+    showIssued(data.username, data.password);
+    $("f-username").value = ""; $("f-fullname").value = "";
+    $("newform").style.display = "none"; $("btn-toggle-new").textContent = "展開";
+    await refresh();
+  } catch (e) {
+    fail(e);
+  } finally {
+    btn.disabled = false; btn.textContent = "建立帳號";
+  }
+}
+
+// The password exists in exactly one place: this panel. Nothing writes it to the
+// database, the audit row, or storage — dismissing it destroys the only copy.
+function showIssued(username, password) {
+  $("issued").innerHTML = `
+    <div class="issued">
+      <strong>已建立 ${esc(username)}</strong>
+      <p>密碼：<code>${esc(password)}</code></p>
+      <p class="warn">這組密碼只會顯示這一次，系統不會保存。</p>
+      <p class="hint" style="margin-bottom:10px">
+        請現在交給老師，關掉之後就看不到了。若遺失，只能停用這個帳號再建一個新的。
+      </p>
+      <button type="button" id="btn-dismiss" class="small">我已抄下來</button>
+    </div>`;
+  $("btn-dismiss").addEventListener("click", () => ($("issued").innerHTML = ""));
+  $("issued").scrollIntoView({ block: "nearest" });
+}
+
+// ── boot ────────────────────────────────────────────────────────────────────
+(async () => {
+  await window.authGate();
+  if (!window.CURRENT_USER_ROLE) return;            // gate already redirected
+  $("btn-signout").addEventListener("click", window.signOut);
+  $("who").textContent = `${window.CURRENT_USER.email} · ${window.CURRENT_USER_ROLE}`;
+  $("btn-toggle-new").addEventListener("click", () => {
+    const open = $("newform").style.display !== "none";
+    $("newform").style.display = open ? "none" : "";
+    $("btn-toggle-new").textContent = open ? "展開" : "收合";
+    if (!open) $("f-username").focus();
+  });
+  $("btn-create").addEventListener("click", createTeacher);
+  try { await refresh(); } catch (e) { fail(e); }
+})();
+</script>
+</body>
+</html>
