@@ -128,7 +128,7 @@ ul.list li.off { opacity: .55; }
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 /* compact 家長聯絡 block: one small label + inputs per row */
 .guardian { display: grid; gap: 6px; margin-bottom: 12px; }
-.guardian .grow { display: grid; grid-template-columns: 2.6em 1fr 1fr; gap: 8px; align-items: center; }
+.guardian .grow { display: grid; grid-template-columns: 2.6em 1fr 1fr 1fr; gap: 8px; align-items: center; }
 .guardian .grow.one { grid-template-columns: 2.6em 1fr; }
 .guardian .glabel { font-size: 13px; color: var(--muted); font-weight: 600; text-align: right; }
 .guardian input { margin: 0; }
@@ -230,7 +230,7 @@ async function loadAll() {
   const [cls, stu, prof, enr, asg] = await Promise.all([
     window.sb.from("classes").select("id,name,grade,subject,active").order("name"),
     window.sb.from("students")
-      .select("id,full_name,student_no,school,grade,father_name,father_phone,mother_name,mother_phone,home_phone,other_contact,note,active")
+      .select("id,full_name,student_no,school,grade,father_name,father_phone,father_line,mother_name,mother_phone,mother_line,home_phone,other_contact,note,active")
       .order("student_no", { nullsFirst: false }),
     window.sb.from("profiles").select("id,username,full_name,role,active").eq("role", "teacher"),
     window.sb.from("enrollments").select("id,student_id,class_id,active"),
@@ -308,7 +308,8 @@ const studentRowHtml = (s) => `
 // run matched digits-only (so 0912345 finds 0912-345-678 across all 4 phone slots).
 function studentMatches(s, q) {
   const ql = q.toLowerCase();
-  if ([s.full_name, s.student_no, s.school, s.father_name, s.mother_name, s.other_contact]
+  if ([s.full_name, s.student_no, s.school, s.father_name, s.mother_name, s.other_contact,
+       s.father_line, s.mother_line]
       .some((v) => (v || "").toLowerCase().includes(ql))) return true;
   const qd = q.replace(/\D/g, "");
   if (qd.length >= 3) {
@@ -456,10 +457,12 @@ function renderStudentForm(box, s) {
     <div class="guardian">
       <div class="grow"><span class="glabel">父</span>
         <input id="s-fname" value="${esc(s?.father_name || "")}">
-        <input id="s-fphone" value="${esc(s?.father_phone || "")}"></div>
+        <input id="s-fphone" value="${esc(s?.father_phone || "")}">
+        <input id="s-fline" placeholder="LINE ID" value="${esc(s?.father_line || "")}"></div>
       <div class="grow"><span class="glabel">母</span>
         <input id="s-mname" value="${esc(s?.mother_name || "")}">
-        <input id="s-mphone" value="${esc(s?.mother_phone || "")}"></div>
+        <input id="s-mphone" value="${esc(s?.mother_phone || "")}">
+        <input id="s-mline" placeholder="LINE ID" value="${esc(s?.mother_line || "")}"></div>
       <div class="grow one"><span class="glabel">家裡</span>
         <input id="s-hphone" value="${esc(s?.home_phone || "")}"></div>
       <div class="grow one"><span class="glabel">其他</span>
@@ -481,7 +484,9 @@ function renderStudentForm(box, s) {
       full_name: nul($("s-name").value), student_no: nul($("s-no").value),
       school: nul($("s-school").value), grade: num($("s-grade").value),
       father_name: nul($("s-fname").value), father_phone: nul($("s-fphone").value),
+      father_line: nul($("s-fline").value),
       mother_name: nul($("s-mname").value), mother_phone: nul($("s-mphone").value),
+      mother_line: nul($("s-mline").value),
       home_phone: nul($("s-hphone").value), other_contact: nul($("s-other").value),
       note: nul($("s-note").value),
     };
