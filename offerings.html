@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>家偉補習班 · 開課資訊台</title>
+<!--
+  開課資訊台 — edits the class_offerings table.
+
+  Load order (same contract as roster.html): supabase-js CDN → sb.js → auth.js,
+  then authGate() before rendering. No server: every write is PostgREST under
+  RLS (owner/admin per-command policies + column grants, migration
+  20260806000001) with a security-definer audit trigger. This page is NOT a
+  security boundary; the database is.
+
+  What makes this table special: rows with status='open' are readable by ANON —
+  they render on the public 官網 (www.chiaweiedu.com) and the 家長專區. So:
+  whatever you type here is PUBLIC the moment status is 開課中. No student
+  names, no PII, ever. 下架 = status 已收班 (there is deliberately no delete).
+-->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sb.js"></script>
+<script src="auth.js"></script>
+<style>
+:root {
+  --brand: #2547c7; --orange: #ef5226; --gold: #f8c414;
+  --bg: #f6f7fb; --surface: #fff; --ink: #1b1f2a; --muted: #6b7280; --line: #e3e6ee;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px; color: var(--ink); background: var(--bg);
+  font-family: "PingFang TC", "Noto Sans TC", system-ui, -apple-system, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 900px; margin: 0 auto; }
+header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+h1 { font-size: 20px; color: var(--brand); margin: 0; }
+.sub { font-size: 13px; color: var(--muted); margin: 0 0 16px; }
+.sub b { color: #8a5a00; }
+a.back { font-size: 13px; color: var(--brand); text-decoration: none; margin-left: auto; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 16px 18px; margin-bottom: 14px; }
+.row { display: grid; grid-template-columns: 1.4fr .7fr .6fr 1.2fr .8fr .5fr; gap: 8px; }
+.row + .row { margin-top: 8px; }
+.head { font-size: 11px; letter-spacing: .08em; color: var(--muted); font-weight: 700; }
+input, select { font: inherit; font-size: 13px; border: 1px solid var(--line);
+  border-radius: 7px; padding: 7px 9px; width: 100%; background: #fff; }
+input:focus, select:focus { outline: none; border-color: var(--brand); }
+.note-in { grid-column: 1 / -1; }
+.item { border: 1px solid var(--line); border-left: 4px solid var(--line);
+  border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+.item.st-open { border-left-color: var(--gold); }
+.item.st-closed { opacity: .6; }
+.item .meta { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+.badge { font-size: 11px; font-weight: 800; border-radius: 999px; padding: 2px 10px; }
+.b-draft { background: #eef0f5; color: var(--muted); }
+.b-open { background: #fef6da; color: #8a5a00; }
+.b-closed { background: #f0f1f5; color: var(--muted); text-decoration: line-through; }
+button { font: inherit; font-size: 13px; cursor: pointer; border: 1px solid var(--line);
+  border-radius: 7px; padding: 6px 12px; background: #fff; color: var(--ink); }
+button.primary { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 700; }
+button.warn { color: var(--orange); border-color: #f3d0b8; }
+button:disabled { opacity: .5; cursor: default; }
+.msg { font-size: 13px; color: var(--muted); min-height: 1.2em; margin-top: 6px; }
+.msg.err { color: var(--orange); font-weight: 700; }
+@media (max-width: 720px) { .row { grid-template-columns: 1fr 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>開課資訊台</h1>
+    <a class="back" href="index.html">← 回後台</a>
+  </header>
+  <p class="sub">狀態是 <b>開課中</b> 的班會直接顯示在官網與家長專區 —— 這裡打的字就是公開文案，<b>不要放學生姓名或任何個資</b>。下架用「已收班」，不刪除。</p>
+
+  <div class="card">
+    <div class="row head">
+      <span>課程名稱</span><span>對象</span><span>科目</span><span>時段</span><span>開課日</span><span>排序</span>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <input id="n-name" placeholder="例：國二數學 秋季班">
+      <input id="n-grade" placeholder="例：升國二">
+      <input id="n-subject" placeholder="數學">
+      <input id="n-schedule" placeholder="例：週二・週四 19:00–21:30">
+      <input id="n-start" type="date">
+      <input id="n-sort" type="number" value="0">
+    </div>
+    <div class="row" style="margin-top:8px">
+      <input id="n-note" class="note-in" placeholder="補充說明（校區、優惠、診斷…）— 也會公開顯示">
+    </div>
+    <div style="margin-top:10px; display:flex; gap:8px; align-items:center">
+      <button class="primary" id="btn-add">新增（先存成草稿）</button>
+      <span class="msg" id="add-msg"></span>
+    </div>
+  </div>
+
+  <div id="list"></div>
+  <p class="msg" id="list-msg"></p>
+</div>
+
+<script>
+(async () => {
+  await window.authGate();
+  if (!window.CURRENT_USER_ROLE) return;
+
+  const sb = window.sb;
+  const FIELDS = ["name", "grade_label", "subject", "schedule", "start_date", "note", "sort_order"];
+  const BADGE = { draft: ["b-draft", "草稿"], open: ["b-open", "開課中（公開）"], closed: ["b-closed", "已收班"] };
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g,
+      c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  async function load() {
+    const { data, error } = await sb.from("class_offerings")
+      .select("*").order("status").order("sort_order").order("start_date", { nullsFirst: false });
+    const list = document.getElementById("list");
+    if (error) { document.getElementById("list-msg").textContent = "載入失敗：" + error.message; return; }
+    if (!data.length) { list.innerHTML = '<p class="msg">還沒有任何開課資訊。</p>'; return; }
+    list.innerHTML = data.map(r => `
+      <div class="item st-${esc(r.status)}" data-id="${esc(r.id)}">
+        <div class="row">
+          <input data-f="name" value="${esc(r.name)}">
+          <input data-f="grade_label" value="${esc(r.grade_label)}">
+          <input data-f="subject" value="${esc(r.subject)}">
+          <input data-f="schedule" value="${esc(r.schedule)}">
+          <input data-f="start_date" type="date" value="${esc(r.start_date)}">
+          <input data-f="sort_order" type="number" value="${esc(r.sort_order)}">
+        </div>
+        <div class="row" style="margin-top:6px"><input data-f="note" class="note-in" value="${esc(r.note)}"></div>
+        <div class="meta">
+          <span class="badge ${BADGE[r.status][0]}">${BADGE[r.status][1]}</span>
+          <button data-act="save">儲存修改</button>
+          ${r.status !== "open" ? '<button data-act="open" class="primary">上架（公開）</button>' : ""}
+          ${r.status === "open" ? '<button data-act="closed" class="warn">下架（已收班）</button>' : ""}
+          ${r.status === "closed" ? '<button data-act="draft">退回草稿</button>' : ""}
+          <span class="msg" data-msg></span>
+        </div>
+      </div>`).join("");
+  }
+
+  function readItem(el) {
+    const patch = {};
+    FIELDS.forEach(f => {
+      const inp = el.querySelector(`[data-f="${f}"]`);
+      let v = inp.value.trim();
+      if (f === "sort_order") v = parseInt(v || "0", 10);
+      else if (v === "") v = null;
+      patch[f] = v;
+    });
+    return patch;
+  }
+
+  document.getElementById("list").addEventListener("click", async (ev) => {
+    const btn = ev.target.closest("button[data-act]");
+    if (!btn) return;
+    const item = btn.closest(".item");
+    const msg = item.querySelector("[data-msg]");
+    const act = btn.dataset.act;
+    const patch = readItem(item);
+    if (act !== "save") patch.status = act;
+    if (!patch.name) { msg.textContent = "課程名稱不能空白"; msg.classList.add("err"); return; }
+    btn.disabled = true;
+    const { error } = await sb.from("class_offerings").update(patch).eq("id", item.dataset.id);
+    btn.disabled = false;
+    if (error) { msg.textContent = "存檔失敗：" + error.message; msg.classList.add("err"); return; }
+    await load();
+  });
+
+  document.getElementById("btn-add").addEventListener("click", async () => {
+    const msg = document.getElementById("add-msg");
+    const rec = {
+      name: document.getElementById("n-name").value.trim(),
+      grade_label: document.getElementById("n-grade").value.trim() || null,
+      subject: document.getElementById("n-subject").value.trim() || null,
+      schedule: document.getElementById("n-schedule").value.trim() || null,
+      start_date: document.getElementById("n-start").value || null,
+      note: document.getElementById("n-note").value.trim() || null,
+      sort_order: parseInt(document.getElementById("n-sort").value || "0", 10),
+      status: "draft",
+    };
+    if (!rec.name) { msg.textContent = "課程名稱不能空白"; msg.classList.add("err"); return; }
+    msg.classList.remove("err");
+    const { error } = await sb.from("class_offerings").insert(rec);
+    if (error) { msg.textContent = "新增失敗：" + error.message; msg.classList.add("err"); return; }
+    msg.textContent = "已新增為草稿";
+    ["n-name", "n-grade", "n-subject", "n-schedule", "n-start", "n-note"].forEach(id =>
+      document.getElementById(id).value = "");
+    await load();
+  });
+
+  await load();
+})();
+</script>
+</body>
+</html>
