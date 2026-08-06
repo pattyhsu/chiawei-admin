@@ -257,7 +257,8 @@ const SUBJ_ORDER = { "國文": 0, "英文": 1, "數學": 2, "自然": 3 };
 const GRADE_NAME = { 7: "國一", 8: "國二", 9: "國三" };
 const gradeSubjectClasses = (grade) => CLASSES
   .filter((c) => c.active && c.grade === grade && c.subject)
-  .sort((a, b) => (SUBJ_ORDER[a.subject] ?? 9) - (SUBJ_ORDER[b.subject] ?? 9));
+  .sort((a, b) => ((SUBJ_ORDER[a.subject] ?? 9) - (SUBJ_ORDER[b.subject] ?? 9))
+    || (a.name || "").localeCompare(b.name || "", "zh-Hant"));
 
 // ── render ──────────────────────────────────────────────────────────────────
 // grade tabs — the first cut. Pick a 年級, then its 班級 show below.
@@ -469,9 +470,9 @@ function renderStudentForm(box, s) {
         <input id="s-other" value="${esc(s?.other_contact || "")}"></div>
     </div>
     <div class="fld"><label>備註</label><textarea id="s-note" rows="2" placeholder="原校班級、座位、繳費提醒…">${esc(s?.note || "")}</textarea></div>
-    ${subjClasses.length ? `<label>修習科目${gradeForForm ? `（${GRADE_NAME[gradeForForm] || gradeForForm + "年級"}）` : ""}</label>
+    ${subjClasses.length ? `<label>修習班級${gradeForForm ? `（${GRADE_NAME[gradeForForm] || gradeForForm + "年級"}）` : ""}</label>
     <div class="teachers" style="margin-bottom:12px">${subjClasses.map((c) =>
-      `<label><input type="checkbox" data-subj="${c.id}" ${(s ? enrolledIds.has(c.id) : true) ? "checked" : ""}>${esc(c.subject)}</label>`).join("")}</div>` : ""}
+      `<label><input type="checkbox" data-subj="${c.id}" ${enrolledIds.has(c.id) ? "checked" : ""}>${esc(c.name)}</label>`).join("")}</div>` : ""}
     <div class="actions">
       <button type="button" class="primary" id="s-save">${s ? "儲存" : "建立學生"}</button>
       ${s ? `<button type="button" class="danger" id="s-toggle">${s.active ? "停用" : "啟用"}</button>` : ""}
@@ -550,11 +551,15 @@ async function enroll(studentId, classId) {
   if (error) throw error;
 }
 
-// Sync a student's enrollments to the checked 修習科目 boxes. `have` reads the
+// Sync a student's enrollments to the checked 修習班級 boxes. `have` reads the
 // pre-refresh ENROLL cache — correct for an existing student; empty for a brand
-// new one (not in the cache yet), so all checked subjects get enrolled.
+// new one (not in the cache yet), so all checked classes get enrolled.
 async function syncSubjects(studentId) {
   const boxes = [...document.querySelectorAll("[data-subj]")];
+  // If the checkbox block wasn't rendered at all (grade with no active classes),
+  // an empty `want` would unenroll the student from everything — bail instead.
+  // Unchecking every rendered box still unenrolls; that one is deliberate.
+  if (!boxes.length) return;
   const want = new Set(boxes.filter((b) => b.checked).map((b) => b.dataset.subj));
   const have = new Set(studentClasses(studentId).map((c) => c.id));
   for (const id of want) if (!have.has(id)) await enroll(studentId, id);

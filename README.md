@@ -21,6 +21,7 @@ Two tools: the **收據產生器** and the **內容行銷台**.
 | `receipt.html` | **GENERATED — do not edit by hand.** The 收據產生器, auth-gated. |
 | `content.html` | The 內容行銷台 — **hand-written**, edit it here. Gated. |
 | `roster.html` | The 名冊 (班級 × 學生 × 任教老師) — **hand-written**. Gated. **Handles minors' PII.** |
+| `schedule.html` | The 課表 (頭份 weekly timetable, hardcoded per semester) — **hand-written**. Gated. |
 | `login.html` | Sign-in surface. Deliberately does not load `auth.js`. Honours `?next=`. |
 | `auth.js` | Session gate: requires a Supabase session **and** an owner/admin role. |
 | `sb.js` | Supabase browser client (anon key — public by design, RLS behind it). |

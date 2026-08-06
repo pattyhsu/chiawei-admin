@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>家偉補習班 · 課表</title>
+<!-- 課表 — the 頭份 weekly timetable, hand-written like content.html/roster.html.
+     The timetable itself is HARDCODED in the SCHEDULE constant below (it changes
+     once a semester — edit it there, commit, Pages redeploys). No Supabase reads;
+     auth.js gates the page like every other tool. No PII, no bank content.
+     Source: Patty's 家偉課表 總表 xlsx, 115學年, effective 2026-08-24. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sb.js"></script>
+<script src="auth.js"></script>
+<style>
+:root {
+  /* Brand palette (chiawei CLAUDE.md): 寶藍 primary, 黃/橘 accents.
+     Copied per-page, matching content.html — this repo has no shared stylesheet. */
+  --brand: #2547c7;
+  --brand-yellow: #f8c414;
+  --brand-orange: #ef5226;
+  --bg: #f6f7fb;
+  --surface: #fff;
+  --ink: #1b1f2a;
+  --muted: #6b7280;
+  --line: #e3e6ee;
+  --ok: #1e7d46;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--bg);
+  font-family: "PingFang TC", "Noto Sans TC", system-ui, -apple-system, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+header {
+  display: flex; align-items: center; gap: 16px;
+  padding: 10px 16px; background: var(--surface);
+  border-bottom: 2px solid var(--brand);
+  position: sticky; top: 0; z-index: 5; flex-wrap: wrap;
+}
+header .brand { font-weight: 700; color: var(--brand); }
+header .spacer { flex: 1; }
+header .who { font-size: 13px; color: var(--muted); }
+header a.home { font-size: 13px; color: var(--muted); text-decoration: none; }
+header a.home:hover { color: var(--brand); }
+button {
+  font: inherit; font-size: 14px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); color: var(--ink); padding: 7px 13px;
+}
+button:hover { border-color: var(--brand); }
+button.primary {
+  background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600;
+}
+button.primary:hover { filter: brightness(1.08); }
+
+main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 80px; }
+h1 { font-size: 20px; color: var(--brand); margin: 0 0 2px; }
+.sub { font-size: 13px; color: var(--muted); margin: 0 0 16px; }
+
+.sheet {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 14px; overflow-x: auto;
+}
+table { border-collapse: collapse; width: 100%; min-width: 860px; }
+th, td { border: 1px solid var(--line); padding: 6px; vertical-align: top; }
+thead th {
+  background: var(--brand); color: #fff; font-size: 14px; padding: 8px 6px;
+}
+thead th.slot { background: var(--surface); border-color: var(--line); }
+th.slot {
+  width: 118px; text-align: left; font-size: 12px; font-weight: 600;
+  color: var(--ink); background: var(--bg);
+}
+th.slot .t { display: block; font-weight: 400; color: var(--muted); margin-top: 2px; }
+td { min-width: 108px; }
+tr.hc th.slot { background: #f1f3fa; }        /* 新竹 row, visually secondary */
+tr.hc .chip { opacity: .72; }
+
+.chip {
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  border-radius: 7px; padding: 4px 7px; margin: 2px 0;
+  font-size: 13px; font-weight: 600; line-height: 1.35;
+  border: 1px solid transparent;
+}
+.chip .tch {
+  font-size: 11px; font-weight: 700; flex: none;
+  border-radius: 99px; padding: 0 6px; background: rgba(255, 255, 255, .75);
+}
+.chip.數學 { background: #e8edfb; color: #1b3aa0; border-color: #c9d4f4; }
+.chip.英文 { background: #fdeae4; color: #b23a14; border-color: #f7cfc2; }
+.chip.自然 { background: #e6f3ec; color: #17603a; border-color: #c6e4d3; }
+.chip.國文 { background: #fdf4d7; color: #8a6a06; border-color: #f3e2a4; }
+.note { font-size: 12px; color: var(--muted); margin: 10px 2px 0; }
+
+@media print {
+  @page { size: A4 landscape; margin: 10mm; }
+  body { background: #fff; }
+  header, .no-print { display: none !important; }
+  main { max-width: none; padding: 0; }
+  .sheet { border: 0; border-radius: 0; padding: 0; overflow: visible; }
+  table { min-width: 0; }
+  * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+}
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">家偉補習班 · 課表</span>
+  <span class="spacer"></span>
+  <button type="button" class="primary no-print" onclick="window.print()">列印 / 存 PDF</button>
+  <a class="home" href="index.html">← 回首頁</a>
+  <span class="who" id="who"></span>
+  <button type="button" id="btn-signout">登出</button>
+</header>
+<main>
+  <h1>家偉課表 115學年 · 頭份</h1>
+  <p class="sub">自 2026-08-24（民國115學年）起生效 · 含新竹小英時段 · 依總表整理</p>
+  <div class="sheet"><table id="grid"></table></div>
+  <p class="note">＊ 新竹校暑期 7/8 月上課時間：第一節 下午14:00–15:30、第二節 16:00–17:30。</p>
+  <p class="note">＊ 國一二國文為國一、國二合班上課；國三國文為隔週上課。</p>
+</main>
+<script>
+// ── the timetable ───────────────────────────────────────────────────────────
+// One block per row; d = weekday 1(一)…6(六). subj drives the chip colour and
+// must be one of 數學/英文/自然/國文 (same vocabulary as the classes roster).
+const SCHEDULE = [
+  { label: "週六下午", time: "六 13:00–15:00", cls: [
+    { d: 6, name: "國一二國文", t: "唐", subj: "國文" },
+  ]},
+  { label: "週六傍晚", time: "六 15:30–18:30", cls: [
+    { d: 6, name: "國一生物", t: "", subj: "自然" },
+  ]},
+  { label: "小英（新竹）", time: "17:30–18:45", hc: true, cls: [
+    { d: 1, name: "小英", t: "G", subj: "英文" },
+    { d: 4, name: "小英", t: "G", subj: "英文" },
+  ]},
+  { label: "第一節", time: "18:30–19:55 · 六 18:00–19:30", cls: [
+    { d: 1, name: "國一數A", t: "旻", subj: "數學" },
+    { d: 1, name: "國一數B", t: "國傑", subj: "數學" },
+    { d: 1, name: "國二理", t: "盈", subj: "自然" },
+    { d: 1, name: "國三理B", t: "子", subj: "自然" },
+    { d: 2, name: "國一英A", t: "E", subj: "英文" },
+    { d: 2, name: "國二英", t: "A", subj: "英文" },
+    { d: 2, name: "國三英文輔導", t: "G", subj: "英文" },
+    { d: 3, name: "國三數A", t: "旻", subj: "數學" },
+    { d: 3, name: "國三數B", t: "盈", subj: "數學" },
+    { d: 4, name: "國一數A", t: "旻", subj: "數學" },
+    { d: 4, name: "國一數B", t: "國傑", subj: "數學" },
+    { d: 4, name: "國二理", t: "盈", subj: "自然" },
+    { d: 4, name: "國三理B", t: "子", subj: "自然" },
+    { d: 5, name: "國一英A", t: "E", subj: "英文" },
+    { d: 5, name: "國二英", t: "A", subj: "英文" },
+    { d: 6, name: "國二數B", t: "國傑", subj: "數學" },
+    { d: 6, name: "國三數A", t: "旻", subj: "數學" },
+    { d: 6, name: "國三數B", t: "盈", subj: "數學" },
+  ]},
+  { label: "第二節", time: "20:05–21:30 · 六 19:30–21:00", cls: [
+    { d: 1, name: "國三理A", t: "昇", subj: "自然" },
+    { d: 2, name: "國一英B", t: "E", subj: "英文" },
+    { d: 2, name: "國二英加強", t: "A", subj: "英文" },
+    { d: 3, name: "國二數A", t: "旻", subj: "數學" },
+    { d: 3, name: "國二數B", t: "國傑", subj: "數學" },
+    { d: 3, name: "國三英A", t: "E", subj: "英文" },
+    { d: 3, name: "國三英B", t: "G", subj: "英文" },
+    { d: 4, name: "國三理A", t: "昇", subj: "自然" },
+    { d: 5, name: "國一英B", t: "E", subj: "英文" },
+    { d: 5, name: "國二英加強", t: "A", subj: "英文" },
+    { d: 5, name: "國三國文（隔週）", t: "唐", subj: "國文" },
+    { d: 6, name: "國二數A", t: "旻", subj: "數學" },
+    { d: 6, name: "國三英A", t: "E", subj: "英文" },
+    { d: 6, name: "國三英B", t: "G", subj: "英文" },
+  ]},
+  { label: "資優班", time: "19:30–21:30", cls: [
+    { d: 1, name: "國一資優數A", t: "旻", subj: "數學" },
+    { d: 2, name: "國一資優英", t: "G", subj: "英文" },
+    { d: 3, name: "國一資優理", t: "盈", subj: "自然" },
+    { d: 4, name: "國一資優數A", t: "旻", subj: "數學" },
+    { d: 5, name: "國一資優英", t: "G", subj: "英文" },
+  ]},
+];
+
+// ── render ──────────────────────────────────────────────────────────────────
+const DAYS = ["一", "二", "三", "四", "五", "六"];
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
+  (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+
+function render() {
+  const head = `<thead><tr><th class="slot"></th>${
+    DAYS.map((d) => `<th>${d}</th>`).join("")}</tr></thead>`;
+  const rows = SCHEDULE.map((b) => `
+    <tr${b.hc ? ' class="hc"' : ""}>
+      <th class="slot">${esc(b.label)}<span class="t">${esc(b.time)}</span></th>
+      ${DAYS.map((_, i) => `<td>${b.cls.filter((c) => c.d === i + 1).map((c) => `
+        <div class="chip ${esc(c.subj)}">
+          <span>${esc(c.name)}</span>${c.t ? `<span class="tch">${esc(c.t)}</span>` : ""}
+        </div>`).join("")}</td>`).join("")}
+    </tr>`).join("");
+  document.getElementById("grid").innerHTML = head + `<tbody>${rows}</tbody>`;
+}
+
+(async () => {
+  await window.authGate();
+  if (!window.CURRENT_USER_ROLE) return;
+  document.getElementById("btn-signout").addEventListener("click", window.signOut);
+  document.getElementById("who").textContent =
+    `${window.CURRENT_USER.email} · ${window.CURRENT_USER_ROLE}`;
+  render();
+})();
+</script>
+</body>
+</html>
