@@ -96,6 +96,21 @@ tr.hc .chip { opacity: .72; }
 .chip.國文 { background: #fdf4d7; color: #8a6a06; border-color: #f3e2a4; }
 .note { font-size: 12px; color: var(--muted); margin: 10px 2px 0; }
 
+/* 授課老師 legend — the grid carries short codes so the cells stay narrow;
+   this maps each code to the teacher's full name. */
+.legend { display: flex; flex-wrap: wrap; gap: 6px 10px; margin: 14px 2px 0; }
+.legend .lg {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; border: 1px solid var(--line); border-radius: 8px;
+  padding: 3px 9px 3px 4px; background: var(--surface);
+}
+.legend .lg b {
+  font-size: 11px; font-weight: 700; border-radius: 99px;
+  padding: 1px 7px; background: var(--bg); color: var(--brand);
+}
+.legend .lg.todo { border-style: dashed; color: var(--muted); }
+.legend .hd { font-size: 13px; font-weight: 600; align-self: center; margin-right: 2px; }
+
 @media print {
   @page { size: A4 landscape; margin: 10mm; }
   body { background: #fff; }
@@ -120,10 +135,23 @@ tr.hc .chip { opacity: .72; }
   <h1>家偉課表 115學年 · 頭份</h1>
   <p class="sub">自 2026-08-24（民國115學年）起生效 · 含新竹小英時段 · 依總表整理</p>
   <div class="sheet"><table id="grid"></table></div>
+  <div class="legend" id="legend"></div>
   <p class="note">＊ 新竹校暑期 7/8 月上課時間：第一節 下午14:00–15:30、第二節 16:00–17:30。</p>
   <p class="note">＊ 國一二國文為國一、國二合班上課；國三國文為隔週上課。</p>
 </main>
 <script>
+// ── 授課老師 ────────────────────────────────────────────────────────────────
+// code → full name. The codes are what the 總表 uses and what the grid shows;
+// the legend under the table spells them out. A code with no entry here renders
+// as 待補 — that is the prompt to fill it in, not a bug.
+const TEACHERS = {
+  "旻": "謝旻軒",
+  "國傑": "吳國傑",
+  "盈": "林盈輝",
+  "子": "徐子",
+  "昇": "陳彥昇",
+};
+
 // ── the timetable ───────────────────────────────────────────────────────────
 // One block per row; d = weekday 1(一)…6(六). subj drives the chip colour and
 // must be one of 數學/英文/自然/國文 (same vocabulary as the classes roster).
@@ -196,10 +224,27 @@ function render() {
       <th class="slot">${esc(b.label)}<span class="t">${esc(b.time)}</span></th>
       ${DAYS.map((_, i) => `<td>${b.cls.filter((c) => c.d === i + 1).map((c) => `
         <div class="chip ${esc(c.subj)}">
-          <span>${esc(c.name)}</span>${c.t ? `<span class="tch">${esc(c.t)}</span>` : ""}
+          <span>${esc(c.name)}</span>${c.t
+            ? `<span class="tch" title="${esc(TEACHERS[c.t] || "待補")}">${esc(c.t)}</span>`
+            : ""}
         </div>`).join("")}</td>`).join("")}
     </tr>`).join("");
   document.getElementById("grid").innerHTML = head + `<tbody>${rows}</tbody>`;
+}
+
+// Codes come from the timetable itself (first-appearance order), so a teacher
+// added to SCHEDULE shows up here without touching the legend.
+function renderLegend() {
+  const codes = [];
+  for (const b of SCHEDULE) for (const c of b.cls) {
+    if (c.t && !codes.includes(c.t)) codes.push(c.t);
+  }
+  document.getElementById("legend").innerHTML =
+    `<span class="hd">授課老師</span>` + codes.map((code) => {
+      const name = TEACHERS[code];
+      return `<span class="lg${name ? "" : " todo"}"><b>${esc(code)}</b>${
+        esc(name || "待補")}</span>`;
+    }).join("");
 }
 
 (async () => {
@@ -209,6 +254,7 @@ function render() {
   document.getElementById("who").textContent =
     `${window.CURRENT_USER.email} · ${window.CURRENT_USER_ROLE}`;
   render();
+  renderLegend();
 })();
 </script>
 </body>
