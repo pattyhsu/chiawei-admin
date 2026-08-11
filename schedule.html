@@ -65,7 +65,10 @@ h1 { font-size: 20px; color: var(--brand); margin: 0 0 2px; }
   background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
   padding: 14px; overflow-x: auto;
 }
-table { border-collapse: collapse; width: 100%; min-width: 860px; }
+/* table-layout:fixed so the six weekday columns are EQUAL. With auto layout the
+   browser widens whichever column holds the longest chip — 國三國文（隔週） made
+   週五 visibly wider than the rest. */
+table { border-collapse: collapse; width: 100%; min-width: 860px; table-layout: fixed; }
 th, td { border: 1px solid var(--line); padding: 6px; vertical-align: top; }
 thead th {
   background: var(--brand); color: #fff; font-size: 14px; padding: 8px 6px;
@@ -76,9 +79,17 @@ th.slot {
   color: var(--ink); background: var(--bg);
 }
 th.slot .t { display: block; font-weight: 400; color: var(--muted); margin-top: 2px; }
-td { min-width: 108px; }
-tr.hc th.slot { background: #f1f3fa; }        /* 新竹 row, visually secondary */
-tr.hc .chip { opacity: .72; }
+/* Long class names wrap inside their fixed-width cell rather than stretching it. */
+.chip span { min-width: 0; overflow-wrap: anywhere; }
+
+/* 分校 tabs — one branch's timetable at a time (頭份 / 新竹). */
+.tabs { display: flex; gap: 8px; margin: 0 0 14px; }
+.tabs button {
+  font-weight: 600; border-radius: 999px; padding: 6px 16px;
+}
+.tabs button.on {
+  background: var(--brand); border-color: var(--brand); color: #fff;
+}
 
 .chip {
   display: flex; align-items: center; justify-content: space-between; gap: 6px;
@@ -132,12 +143,12 @@ tr.hc .chip { opacity: .72; }
   <button type="button" id="btn-signout">登出</button>
 </header>
 <main>
-  <h1>家偉課表 115學年 · 頭份</h1>
-  <p class="sub">自 2026-08-24（民國115學年）起生效 · 含新竹小英時段 · 依總表整理</p>
+  <h1 id="title">家偉課表 115學年</h1>
+  <p class="sub">自 2026-08-24（民國115學年）起生效 · 依總表整理</p>
+  <div class="tabs no-print" id="tabs"></div>
   <div class="sheet"><table id="grid"></table></div>
   <div class="legend" id="legend"></div>
-  <p class="note">＊ 新竹校暑期 7/8 月上課時間：第一節 下午14:00–15:30、第二節 16:00–17:30。</p>
-  <p class="note">＊ 國一二國文為國一、國二合班上課；國三國文為隔週上課。</p>
+  <div id="notes"></div>
 </main>
 <script>
 // ── 授課老師 ────────────────────────────────────────────────────────────────
@@ -156,19 +167,21 @@ const TEACHERS = {
   "G": "Gorman",
 };
 
-// ── the timetable ───────────────────────────────────────────────────────────
+// ── the timetable, PER 分校 ─────────────────────────────────────────────────
+// The 總表 is one sheet with a row band per branch (新竹 / 竹南 / 頭份); here each
+// branch is its own tab so a 頭份 teacher never reads a 新竹 slot as theirs.
 // One block per row; d = weekday 1(一)…6(六). subj drives the chip colour and
 // must be one of 數學/英文/自然/國文 (same vocabulary as the classes roster).
-const SCHEDULE = [
+// 竹南 has no classes on the 總表 — add a branch here when it does.
+const BRANCHES = [
+{ name: "頭份", notes: [
+  "國一二國文為國一、國二合班上課；國三國文為隔週上課。",
+], schedule: [
   { label: "週六下午", time: "六 13:00–15:00", cls: [
     { d: 6, name: "國一二國文", t: "唐", subj: "國文" },
   ]},
   { label: "週六傍晚", time: "六 15:30–18:30", cls: [
     { d: 6, name: "國一生物", t: "", subj: "自然" },
-  ]},
-  { label: "小英（新竹）", time: "17:30–18:45", hc: true, cls: [
-    { d: 1, name: "小英", t: "G", subj: "英文" },
-    { d: 4, name: "小英", t: "G", subj: "英文" },
   ]},
   { label: "第一節", time: "18:30–19:55 · 六 18:00–19:30", cls: [
     { d: 1, name: "國一數A", t: "旻", subj: "數學" },
@@ -213,6 +226,17 @@ const SCHEDULE = [
     { d: 4, name: "國一資優數A", t: "旻", subj: "數學" },
     { d: 5, name: "國一資優英", t: "G", subj: "英文" },
   ]},
+]},
+
+{ name: "新竹", notes: [
+  "暑期 7/8 月上課時間：第一節 下午14:00–15:30、第二節 16:00–17:30。",
+  "總表上新竹校僅列小英時段；其餘時段若有課，補進本頁即可。",
+], schedule: [
+  { label: "小英", time: "17:30–18:45", cls: [
+    { d: 1, name: "小英", t: "G", subj: "英文" },
+    { d: 4, name: "小英", t: "G", subj: "英文" },
+  ]},
+]},
 ];
 
 // ── render ──────────────────────────────────────────────────────────────────
@@ -220,11 +244,25 @@ const DAYS = ["一", "二", "三", "四", "五", "六"];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
   (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
 
+let selBranch = 0;   // index into BRANCHES; 頭份 is the default view
+
+function renderTabs() {
+  document.getElementById("tabs").innerHTML = BRANCHES.map((b, i) =>
+    `<button type="button" data-i="${i}" class="${i === selBranch ? "on" : ""}">${
+      esc(b.name)}</button>`).join("");
+  document.querySelectorAll("#tabs button").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      selBranch = Number(btn.dataset.i);
+      renderAll();
+    }));
+}
+
 function render() {
+  const schedule = BRANCHES[selBranch].schedule;
   const head = `<thead><tr><th class="slot"></th>${
     DAYS.map((d) => `<th>${d}</th>`).join("")}</tr></thead>`;
-  const rows = SCHEDULE.map((b) => `
-    <tr${b.hc ? ' class="hc"' : ""}>
+  const rows = schedule.map((b) => `
+    <tr>
       <th class="slot">${esc(b.label)}<span class="t">${esc(b.time)}</span></th>
       ${DAYS.map((_, i) => `<td>${b.cls.filter((c) => c.d === i + 1).map((c) => `
         <div class="chip ${esc(c.subj)}">
@@ -234,13 +272,15 @@ function render() {
         </div>`).join("")}</td>`).join("")}
     </tr>`).join("");
   document.getElementById("grid").innerHTML = head + `<tbody>${rows}</tbody>`;
+  document.getElementById("title").textContent =
+    `家偉課表 115學年 · ${BRANCHES[selBranch].name}`;
 }
 
-// Codes come from the timetable itself (first-appearance order), so a teacher
-// added to SCHEDULE shows up here without touching the legend.
+// Codes come from the branch's own timetable (first-appearance order), so a
+// teacher added to a schedule shows up here without touching the legend.
 function renderLegend() {
   const codes = [];
-  for (const b of SCHEDULE) for (const c of b.cls) {
+  for (const b of BRANCHES[selBranch].schedule) for (const c of b.cls) {
     if (c.t && !codes.includes(c.t)) codes.push(c.t);
   }
   document.getElementById("legend").innerHTML =
@@ -251,14 +291,20 @@ function renderLegend() {
     }).join("");
 }
 
+function renderNotes() {
+  document.getElementById("notes").innerHTML = (BRANCHES[selBranch].notes || [])
+    .map((n) => `<p class="note">＊ ${esc(n)}</p>`).join("");
+}
+
+function renderAll() { renderTabs(); render(); renderLegend(); renderNotes(); }
+
 (async () => {
   await window.authGate();
   if (!window.CURRENT_USER_ROLE) return;
   document.getElementById("btn-signout").addEventListener("click", window.signOut);
   document.getElementById("who").textContent =
     `${window.CURRENT_USER.email} · ${window.CURRENT_USER_ROLE}`;
-  render();
-  renderLegend();
+  renderAll();
 })();
 </script>
 </body>
