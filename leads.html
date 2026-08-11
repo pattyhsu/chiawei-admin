@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>家偉補習班 · 諮詢名單</title>
+<!--
+  諮詢名單 — reads the leads table (chiawei-platform migration 20260812000002).
+
+  Load order (same contract as roster.html / offerings.html): supabase-js CDN →
+  sb.js → auth.js, then authGate() before rendering. No server: reads and writes
+  are PostgREST under RLS.
+
+  ⚠️ THIS PAGE SHOWS PERSONAL DATA — a parent's name, their phone, and their
+  child's grade (個資法). Like roster.html, the protection is not this page: it
+  is the database. `leads` grants anon INSERT only and SELECT to nobody but
+  owner/admin (pgTAP 18, including a canary that anon stays refused). Staff may
+  only change 狀態/備註 — column grants make everything else unreachable — and
+  there is deliberately NO delete: a lead is closed by status so the trail stays.
+
+  Do not add an export button, and do not paste a lead's phone into anything
+  outside this page.
+-->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sb.js"></script>
+<script src="auth.js"></script>
+<style>
+:root {
+  --brand: #2547c7; --orange: #ef5226; --gold: #f8c414;
+  --bg: #f6f7fb; --surface: #fff; --ink: #1b1f2a; --muted: #6b7280; --line: #e3e6ee;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px; color: var(--ink); background: var(--bg);
+  font-family: "PingFang TC", "Noto Sans TC", system-ui, -apple-system, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 960px; margin: 0 auto; }
+header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+h1 { font-size: 20px; color: var(--brand); margin: 0; }
+.sub { font-size: 13px; color: var(--muted); margin: 0 0 16px; }
+.sub b { color: #8a5a00; }
+a.back { font-size: 13px; color: var(--brand); text-decoration: none; margin-left: auto; }
+.tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.tabs button { font: inherit; font-size: 13px; cursor: pointer; border: 1px solid var(--line);
+  border-radius: 999px; padding: 6px 14px; background: #fff; color: var(--muted); }
+.tabs button.on { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 700; }
+.tabs .count { font-variant-numeric: tabular-nums; }
+.item { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--gold);
+  border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; }
+.item.st-contacted { border-left-color: var(--brand); }
+.item.st-booked { border-left-color: #1e7a44; }
+.item.st-closed { border-left-color: var(--line); opacity: .62; }
+.top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.top .nm { font-size: 16px; font-weight: 800; }
+.top .tel { font-size: 15px; font-weight: 700; color: var(--brand); text-decoration: none;
+  font-variant-numeric: tabular-nums; }
+.top .tel:hover { text-decoration: underline; }
+.top .when { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.tag { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 2px 10px;
+  background: #eef1fc; color: #1a2f86; }
+.tag.win { background: #fef6da; color: #8a5a00; }
+.tag.src { background: #f0f1f5; color: var(--muted); }
+.note { margin-top: 8px; font-size: 13px; color: #33384c; white-space: pre-wrap;
+  border-left: 2px solid var(--line); padding-left: 10px; }
+.ctrl { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+select, input.sn { font: inherit; font-size: 13px; border: 1px solid var(--line);
+  border-radius: 7px; padding: 6px 9px; background: #fff; }
+input.sn { flex: 1; min-width: 180px; }
+button.save { font: inherit; font-size: 13px; cursor: pointer; border: 1px solid var(--brand);
+  border-radius: 7px; padding: 6px 12px; background: var(--brand); color: #fff; font-weight: 700; }
+button.save:disabled { opacity: .5; cursor: default; }
+.msg { font-size: 12px; color: var(--muted); }
+.msg.err { color: var(--orange); font-weight: 700; }
+.empty { color: var(--muted); font-size: 14px; padding: 20px 0; }
+.foot { display: flex; align-items: center; gap: 10px; margin-top: 20px; font-size: 12px; color: var(--muted); }
+.foot button { font: inherit; font-size: 12px; cursor: pointer; border: 1px solid var(--line);
+  border-radius: 7px; padding: 5px 10px; background: #fff; color: var(--ink); margin-left: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>諮詢名單</h1>
+    <a class="back" href="index.html">← 回後台</a>
+  </header>
+  <p class="sub">官網「預約免費檢測」表單送出的名單。<b>含家長電話，請勿外流或另存他處</b>；
+    聯絡後把狀態往下移，不刪除（紀錄要留）。</p>
+
+  <div class="tabs" id="tabs"></div>
+  <div id="list"></div>
+
+  <div class="foot">
+    <span id="who"></span>
+    <button type="button" id="btn-signout">登出</button>
+  </div>
+</div>
+<script>
+const STATUS = [
+  ["new", "待聯絡"],
+  ["contacted", "已聯絡"],
+  ["booked", "已約檢測"],
+  ["closed", "結案"],
+];
+const LABEL = Object.fromEntries(STATUS);
+let ROWS = [];
+let FILTER = "new";
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function when(iso) {
+  const d = new Date(iso), n = new Date();
+  const mins = Math.round((n - d) / 60000);
+  if (mins < 60) return mins + " 分鐘前";
+  if (mins < 60 * 24) return Math.round(mins / 60) + " 小時前";
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function renderTabs() {
+  const counts = {};
+  ROWS.forEach(r => { counts[r.status] = (counts[r.status] || 0) + 1; });
+  document.getElementById("tabs").innerHTML = STATUS.map(([k, label]) =>
+    `<button data-f="${k}" class="${FILTER === k ? "on" : ""}">${label} <span class="count">${counts[k] || 0}</span></button>`
+  ).join("") + `<button data-f="all" class="${FILTER === "all" ? "on" : ""}">全部 <span class="count">${ROWS.length}</span></button>`;
+  document.querySelectorAll("#tabs button").forEach(b =>
+    b.addEventListener("click", () => { FILTER = b.dataset.f; renderTabs(); renderList(); }));
+}
+
+function renderList() {
+  const el = document.getElementById("list");
+  const rows = FILTER === "all" ? ROWS : ROWS.filter(r => r.status === FILTER);
+  if (!rows.length) {
+    el.innerHTML = `<p class="empty">${FILTER === "new" ? "目前沒有待聯絡的名單。" : "這個狀態沒有名單。"}</p>`;
+    return;
+  }
+  el.innerHTML = rows.map(r => `
+    <div class="item st-${esc(r.status)}" data-id="${esc(r.id)}">
+      <div class="top">
+        <span class="nm">${esc(r.parent_name)}</span>
+        <a class="tel" href="tel:${esc((r.phone || "").replace(/[^0-9+]/g, ""))}">${esc(r.phone)}</a>
+        <span class="when">${when(r.created_at)}</span>
+      </div>
+      <div class="tags">
+        <span class="tag">${esc(r.stage)}</span>
+        ${(r.subjects || []).map(s => `<span class="tag">${esc(s)}</span>`).join("")}
+        ${r.contact_window ? `<span class="tag win">方便：${esc(r.contact_window)}</span>` : ""}
+        <span class="tag src">${esc(r.source_page || "官網")}</span>
+      </div>
+      ${r.note ? `<div class="note">${esc(r.note)}</div>` : ""}
+      <div class="ctrl">
+        <select class="st">${STATUS.map(([k, l]) =>
+          `<option value="${k}"${r.status === k ? " selected" : ""}>${l}</option>`).join("")}</select>
+        <input class="sn" placeholder="內部備註（家長看不到）" value="${esc(r.staff_note || "")}">
+        <button class="save" type="button">儲存</button>
+        <span class="msg"></span>
+      </div>
+    </div>`).join("");
+
+  el.querySelectorAll(".item").forEach(item => {
+    const btn = item.querySelector(".save");
+    const msg = item.querySelector(".msg");
+    btn.addEventListener("click", async () => {
+      btn.disabled = true; msg.className = "msg"; msg.textContent = "儲存中…";
+      const status = item.querySelector(".st").value;
+      const staff_note = item.querySelector(".sn").value.trim() || null;
+      const { error } = await window.sb.from("leads").update({
+        status, staff_note,
+        handled_by: window.CURRENT_USER.id,
+        handled_at: new Date().toISOString(),
+      }).eq("id", item.dataset.id);
+      btn.disabled = false;
+      if (error) { msg.className = "msg err"; msg.textContent = error.message; return; }
+      msg.textContent = "已儲存";
+      const row = ROWS.find(r => r.id === item.dataset.id);
+      if (row) { row.status = status; row.staff_note = staff_note; }
+      renderTabs();
+      if (FILTER !== "all" && status !== FILTER) renderList();
+    });
+  });
+}
+
+(async () => {
+  await window.authGate();
+  if (!window.CURRENT_USER_ROLE) return;
+  document.getElementById("btn-signout").addEventListener("click", window.signOut);
+  document.getElementById("who").textContent =
+    `${window.CURRENT_USER.email} · ${window.CURRENT_USER_ROLE}`;
+
+  const { data, error } = await window.sb.from("leads")
+    .select("id,parent_name,phone,stage,subjects,contact_window,note,source,source_page,status,staff_note,created_at")
+    .order("created_at", { ascending: false })
+    .limit(500);
+  if (error) {
+    document.getElementById("list").innerHTML =
+      `<p class="empty">讀取失敗：${esc(error.message)}</p>`;
+    return;
+  }
+  ROWS = data || [];
+  renderTabs();
+  renderList();
+})();
+</script>
+</body>
+</html>
