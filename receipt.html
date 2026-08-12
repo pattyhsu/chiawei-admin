@@ -7,6 +7,7 @@
 <title>家偉補習班 · 收據產生器</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="sb.js"></script>
+<script>window.PAGE_ROLES = ["owner", "admin"];</script>
 <script src="auth.js"></script>
 <!-- GENERATED FILE — do not edit by hand.
      Rebuild:  python3 scripts/build_receipt.py --gated --out <path>
@@ -25,6 +26,16 @@
   --muted: #6b7280;
   --line: #e3e6ee;
   --danger: #c0362c;
+  /* 分析報告 semantic tokens — color by job, not by taste (see dataviz) */
+  --good: #12805a; /* 正解 (correct/incorrect is status, outside the data ramp) */
+  --warn: #cf7a1f; /* legacy — being replaced by the brand level ramp below */
+  --track: #eef1f8; /* the light rail every bar sits on */
+  /* brand data-tier ramp (brand/design-system) — the ONLY palette for mastery/score
+     data. 4 discrete levels, never a gradient, never gold-text-on-white. */
+  --level-0: #ef5226; /* 待加強 */
+  --level-1: #d9a400; /* 進行中 (data-gold — fill only, ink/white text inside) */
+  --level-2: #5b85dc; /* 接近精熟 */
+  --level-3: #2547c7; /* 精熟 */
 }
 
 * { box-sizing: border-box; }
@@ -635,81 +646,20 @@ ol.rc-rules li {
   }
 }
 
-/* ── 內容行銷台 (Module G content pipeline) ────────────────────────────────── */
-.ctPage { max-width: 1080px; margin: 0 auto; padding: 24px 16px 64px; }
-.ctHead h2 { margin-bottom: 6px; }
-.ctNav { display: flex; gap: 10px; margin-top: 12px; }
-.ctEmpty { margin-top: 32px; }
-
-/* generic small buttons/chips for the content surface */
-.ctPage .btn, .ctNav .btn {
-  display: inline-flex; align-items: center; gap: 6px;
-  border: 1px solid var(--line); border-radius: 8px;
-  background: var(--brand); color: #fff;
-  font-size: 13px; font-weight: 600; padding: 7px 14px;
-  cursor: pointer; text-decoration: none; line-height: 1.2;
-}
-.ctPage .btn.ghost, .ctNav .btn.ghost { background: #fff; color: var(--ink); }
-.ctPage .btn.ok { background: #1e7d46; }
-.ctPage .btn.primary { background: var(--brand-orange); }
-.ctPage .btn.danger { color: var(--danger); border-color: var(--danger); }
-.ctPage .btn:disabled { opacity: 0.5; cursor: default; }
-.ctPage .chip {
-  display: inline-block; font-size: 12px; font-weight: 700;
-  border-radius: 999px; padding: 3px 10px;
-  background: #eef1fc; color: var(--brand);
-}
-.ctPage .chip.st-draft { background: #f1f2f5; color: var(--muted); }
-.ctPage .chip.st-approved { background: #e5f4ea; color: #1e7d46; }
-.ctPage .chip.st-posted { background: var(--brand); color: #fff; }
-.ctPage .chip.st-rejected { background: #fdeae3; color: var(--danger); }
-.ctPage .chip.warn { background: #fef6da; color: #8a6a00; }
-.ctPage .chip.ok { background: #e5f4ea; color: #1e7d46; }
-
-.ctDay { margin-top: 28px; }
-.ctDate { font-size: 15px; color: var(--muted); border-bottom: 1px solid var(--line); padding-bottom: 6px; }
-.ctToday {
-  margin-left: 8px; font-size: 12px; font-weight: 700; color: #fff;
-  background: var(--brand-orange); border-radius: 999px; padding: 2px 8px;
-}
-.ctItem {
-  display: flex; gap: 16px; padding: 14px 0; border-bottom: 1px dashed var(--line);
-}
-.ctItem.st-rejected { opacity: 0.55; }
-.ctThumbs { flex: 0 0 148px; display: flex; flex-direction: column; gap: 8px; }
-.ctThumb { width: 148px; height: 148px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
-.ctMain { flex: 1; min-width: 0; }
-.ctMeta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.ctTitle { font-size: 15px; }
-.ctWarn { color: #8a6a00; font-size: 13px; margin: 6px 0 0; }
-.ctCaption {
-  width: 100%; margin-top: 10px; font: inherit; font-size: 13px;
-  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
-  background: #fff; resize: vertical;
-}
-.ctActions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
-
-/* composer + bank */
-.ctCompose, .ctBank { margin-top: 18px; display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
-.ctCompose .fld, .ctBank .fld { width: 100%; }
-.ctFormRow { display: flex; gap: 12px; width: 100%; align-items: flex-end; }
-.ctFormRow .fld.grow { flex: 1; }
-.ctCompose textarea, .ctBank textarea, .ctBank input.ctBankTitle {
-  width: 100%; font: inherit; font-size: 14px;
-  border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: #fff;
-}
-.ctConsent {
-  border: 1px solid var(--brand-yellow); background: #fef6da33;
-  border-radius: 10px; padding: 12px 14px; width: 100%;
-  display: flex; flex-direction: column; gap: 10px;
-}
-.ctConsent .chk { display: flex; gap: 8px; align-items: center; font-size: 14px; }
-.ctBankItem {
-  width: 100%; border: 1px solid var(--line); border-radius: 10px;
-  padding: 12px 14px; background: #fff; display: flex; flex-direction: column; gap: 8px;
-}
-.ctBankItem.st-used { opacity: 0.6; }
-.ctBankTitle { font-weight: 700; }
+/* ── 記帳 additions — GATED build only, not part of the shared receipt CSS ── */
+#gt-results { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+#gt-results button { background: #fff; color: var(--ink); border: 1px solid var(--line);
+  padding: 6px 10px; text-align: left; font-weight: 400; font-size: 13px; border-radius: 7px; }
+#gt-results button:hover { border-color: var(--brand); }
+.gt-chip { display: inline-flex; align-items: center; gap: 6px; margin: 4px 6px 0 0;
+  padding: 5px 10px; border-radius: 999px; font-size: 13px; border: 1px solid var(--line);
+  background: #eef1fc; color: #1a2f86; font-weight: 600; }
+#gt-chips .gt-chip { background: #fff; cursor: pointer; font-weight: 400; }
+#gt-chips .gt-chip:hover { border-color: var(--brand); }
+#gt-picked .gt-x { cursor: pointer; font-weight: 700; }
+#gt-msg { font-size: 13px; color: var(--muted); margin: 6px 0 0; min-height: 1.2em; }
+#gt-msg.err { color: #b3261e; font-weight: 700; }
+#gt-msg.ok { color: #1e7a44; font-weight: 700; }
 
 </style>
 </head>
@@ -720,7 +670,8 @@ ol.rc-rules li {
     <div class="rcpt-bar-actions">
       <button type="button" class="ghost" id="btn-clear">清空</button>
       <button type="button" class="ghost" id="btn-signout">登出</button>
-      <button type="button" id="btn-print">列印 / 存成 PDF</button>
+      <button type="button" class="ghost" id="btn-print">僅列印（不記帳）</button>
+      <button type="button" id="btn-save-print">記帳並列印</button>
     </div>
   </div>
   <div class="rcpt-work">
@@ -731,6 +682,25 @@ ol.rc-rules li {
         <em id="f-locinfo"></em>
       </label>
 
+      <div class="rcpt-sec">記帳（列印同時入帳）</div>
+      <div class="rcpt-fld"><span>帶入學生</span>
+        <input id="gt-search" placeholder="搜尋姓名或學號" autocomplete="off">
+        <div id="gt-results"></div>
+        <div id="gt-picked"></div>
+        <em>要記帳必須從這裡選學生；只印不記帳則不用。</em>
+      </div>
+      <label class="rcpt-fld"><span>繳費方式</span>
+        <select id="gt-method">
+          <option value="cash">現金</option>
+          <option value="transfer">轉帳</option>
+          <option value="card">刷卡</option>
+          <option value="other">其他</option>
+        </select>
+      </label>
+      <div class="rcpt-fld"><span>帶入費用</span>
+        <div id="gt-chips"><em class="muted">先選學生，這裡會列出他的班級與本期費用。</em></div>
+      </div>
+      <div id="gt-msg"></div>
       <div class="rcpt-sec">收據</div>
       <label class="rcpt-fld"><span>學生姓名</span>
         <input id="f-name" placeholder="王小明"></label>
@@ -1010,11 +980,204 @@ function init() {
   syncLines();
 }
 
+// ── 記帳 (gated build only) ───────────────────────────────────────────────────
+let GT_STUDENTS = [];
+let GT_PICKED = null;   // {id, full_name, student_no}
+let GT_SAVED = null;    // payment id already recorded for the CURRENT form state
+
+const gtEsc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+/** "115/7/1" (民國, as typed on the receipt) -> "2026-07-01", or null. */
+function rocToIso(input) {
+  const m = String(input || "").trim().match(/^(\d{2,3})[\/.\-](\d{1,2})[\/.\-](\d{1,2})$/);
+  if (!m) return null;
+  return (Number(m[1]) + 1911) + "-" + String(m[2]).padStart(2, "0") + "-" + String(m[3]).padStart(2, "0");
+}
+/** LOCAL today as ISO — never toISOString(), which is UTC and can shift a day. */
+function todayISO() {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function gtMsg(text, cls) {
+  const el = $("#gt-msg");
+  el.className = cls || "";
+  el.textContent = text || "";
+}
+
+function gtPick(s) {
+  GT_PICKED = s; GT_SAVED = null;
+  $("#gt-search").value = "";
+  $("#gt-results").innerHTML = "";
+  $("#gt-picked").innerHTML = s
+    ? '<span class="gt-chip">' + gtEsc((s.student_no ? s.student_no + " " : "") + s.full_name) +
+      ' <span class="gt-x" title="清除">✕</span></span>'
+    : "";
+  if (s) {
+    $("#f-name").value = s.full_name;
+    render();
+    const x = $("#gt-picked .gt-x");
+    if (x) x.addEventListener("click", () => gtPick(null));
+  }
+  gtLoadChips();
+}
+
+function gtSearch() {
+  const q = $("#gt-search").value.trim().toLowerCase();
+  const box = $("#gt-results");
+  if (!q) { box.innerHTML = ""; return; }
+  const hits = GT_STUDENTS.filter((s) =>
+    (s.full_name || "").toLowerCase().includes(q) ||
+    (s.student_no || "").includes(q)).slice(0, 8);
+  box.innerHTML = hits.map((s, i) =>
+    '<button type="button" data-i="' + i + '">' +
+    gtEsc((s.student_no ? s.student_no + " · " : "") + s.full_name) + "</button>").join("");
+  box.querySelectorAll("button").forEach((b, i) =>
+    b.addEventListener("click", () => gtPick(hits[i])));
+}
+
+/** The picked student's (class × active 期) fees, override-aware, as chips. */
+async function gtLoadChips() {
+  const box = $("#gt-chips");
+  if (!GT_PICKED) { box.innerHTML = '<em class="muted">先選學生，這裡會列出他的班級與本期費用。</em>'; return; }
+  box.innerHTML = '<em class="muted">載入中…</em>';
+  const [enr, terms] = await Promise.all([
+    window.sb.from("enrollments").select("class_id, classes(name)")
+      .eq("student_id", GT_PICKED.id).eq("active", true),
+    window.sb.from("terms").select("id, name").eq("active", true).order("starts_on", { ascending: false }),
+  ]);
+  if (enr.error || terms.error) { box.innerHTML = '<em class="muted">讀取失敗</em>'; return; }
+  if (!(enr.data || []).length || !(terms.data || []).length) {
+    box.innerHTML = '<em class="muted">這位學生沒有班級，或還沒有開任何期別。</em>'; return;
+  }
+  const classIds = enr.data.map((e) => e.class_id);
+  const [fees, ovr] = await Promise.all([
+    window.sb.from("class_fees").select("class_id, term_id, amount").in("class_id", classIds),
+    window.sb.from("student_fee_overrides").select("class_id, term_id, amount")
+      .eq("student_id", GT_PICKED.id),
+  ]);
+  if (fees.error || ovr.error) { box.innerHTML = '<em class="muted">讀取失敗</em>'; return; }
+  const chips = [];
+  for (const t of terms.data) {
+    for (const e of enr.data) {
+      const fee = (fees.data || []).find((f) => f.class_id === e.class_id && f.term_id === t.id);
+      if (!fee) continue;
+      const o = (ovr.data || []).find((x) => x.class_id === e.class_id && x.term_id === t.id);
+      chips.push({
+        classId: e.class_id, termId: t.id,
+        label: ((e.classes && e.classes.name) || "") + "學費（" + t.name + "）",
+        amount: o ? o.amount : fee.amount,
+        display: ((e.classes && e.classes.name) || "") + "·" + t.name + "·" + (o ? o.amount + "（優惠）" : fee.amount),
+      });
+    }
+  }
+  if (!chips.length) { box.innerHTML = '<em class="muted">他的班級這期還沒設定費用（到收費台設定）。</em>'; return; }
+  box.innerHTML = chips.map((c, i) =>
+    '<span class="gt-chip" data-i="' + i + '">＋ ' + gtEsc(c.display) + "</span>").join("");
+  box.querySelectorAll(".gt-chip").forEach((el, i) =>
+    el.addEventListener("click", () => gtChipToLine(chips[i])));
+}
+
+/** Fill the first empty 項目 row (or a new one) and TAG it with the allocation. */
+function gtChipToLine(chip) {
+  let rows = $$(".rcpt-line");
+  let row = rows.find((r) => !$('[data-k="item"]', r).value && !$('[data-k="amount"]', r).value);
+  if (!row) {
+    if (rows.length >= ROWS) { gtMsg("項目最多 " + ROWS + " 列。", "err"); return; }
+    addLine();
+    rows = $$(".rcpt-line");
+    row = rows[rows.length - 1];
+  }
+  $('[data-k="item"]', row).value = chip.label.slice(0, 40);
+  $('[data-k="amount"]', row).value = String(chip.amount);
+  row.dataset.classId = chip.classId;
+  row.dataset.termId = chip.termId;
+  GT_SAVED = null;
+  render();
+}
+
+/** Suggest the next 收據號碼 for the branch. The DB's unique(branch, receipt_no)
+ *  stays the arbiter — this only pre-fills an EMPTY field. */
+async function gtSuggestNo() {
+  const { data } = await window.sb.from("tuition_payments").select("receipt_no")
+    .eq("branch", $("#f-loc").value).order("receipt_no", { ascending: false }).limit(1);
+  if (!data || !data.length) return;
+  const next = String(parseInt(data[0].receipt_no, 10) + 1);
+  const f = $("#f-num");
+  f.placeholder = next;
+  if (!f.value) { f.value = next; render(); }
+}
+
+async function gtSavePrint() {
+  if (GT_SAVED) { window.print(); return; }   // unchanged since last 記帳 → reprint only
+  const btn = $("#btn-save-print");
+  if (!GT_PICKED || $("#f-name").value.trim() !== GT_PICKED.full_name) {
+    gtMsg("要記帳，先用「帶入學生」選人（只印不記帳請按左邊）。", "err"); return;
+  }
+  const no = receiptNo($("#f-num").value);
+  if (!no) { gtMsg("先填收據號碼。", "err"); return; }
+  const lines = $$(".rcpt-line").map((row, i) => ({
+    position: i,
+    label: ($('[data-k="item"]', row).value.trim() || "學費").slice(0, 40),
+    amount: amountValue($('[data-k="amount"]', row).value),
+    class_id: row.dataset.classId || null,
+    term_id: row.dataset.termId || null,
+    raw: $('[data-k="item"]', row).value.trim() + $('[data-k="amount"]', row).value.trim(),
+  })).filter((l) => l.raw).map(({ raw, ...l }) => l);
+  if (!lines.length) { gtMsg("至少填一個項目。", "err"); return; }
+  btn.disabled = true;
+  gtMsg("記帳中…");
+  const { data: pay, error } = await window.sb.from("tuition_payments").insert({
+    student_id: GT_PICKED.id,
+    branch: $("#f-loc").value,
+    receipt_no: no,
+    period_start: rocToIso($("#f-classStart").value),
+    period_end: rocToIso($("#f-classEnd").value),
+    paid_on: rocToIso($("#f-payDate").value) || todayISO(),
+    method: $("#gt-method").value,
+  }).select("id").single();
+  if (error) {
+    btn.disabled = false;
+    if (error.code === "23505") { gtMsg("這個收據號碼在這個分校已用過，請改號碼。", "err"); gtSuggestNo(); }
+    else gtMsg("記帳失敗：" + error.message, "err");
+    return;
+  }
+  const { error: ierr } = await window.sb.from("tuition_payment_items")
+    .insert(lines.map((l) => ({ payment_id: pay.id, ...l })));
+  if (ierr) {
+    // no orphan totals: the payment we just made gets voided, not left half-written
+    await window.sb.from("tuition_payments")
+      .update({ voided: true, void_reason: "系統：項目寫入失敗" }).eq("id", pay.id);
+    btn.disabled = false;
+    gtMsg("記帳失敗（那筆已自動作廢）：" + ierr.message, "err");
+    return;
+  }
+  GT_SAVED = pay.id;
+  btn.disabled = false;
+  gtMsg("已記帳（收據 " + no + "）— 再按一次只會重印，改任何欄位才會記新的一筆。", "ok");
+  window.print();
+}
+
+async function gatedInit() {
+  const { data } = await window.sb.from("students")
+    .select("id, full_name, student_no").eq("active", true)
+    .order("student_no", { nullsFirst: false });
+  GT_STUDENTS = data || [];
+  $("#gt-search").addEventListener("input", gtSearch);
+  $("#btn-save-print").addEventListener("click", gtSavePrint);
+  // ANY edit invalidates the "already recorded" state (so a re-print after a
+  // change records a fresh receipt instead of silently diverging from the DB).
+  $(".rcpt-editor").addEventListener("input", () => { GT_SAVED = null; gtMsg(""); });
+  $("#f-loc").addEventListener("change", () => { GT_SAVED = null; gtSuggestNo(); });
+  gtSuggestNo();
+}
+
 (async () => {
   await window.authGate();
   if (!window.CURRENT_USER_ROLE) return;   // gate already redirected
   document.getElementById("btn-signout").addEventListener("click", window.signOut);
   init();
+  gatedInit();
 })();
 
 </script>
