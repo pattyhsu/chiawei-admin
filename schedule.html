@@ -5,7 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>家偉補習班 · 課表</title>
-<!-- 課表 — the 頭份 weekly timetable, hand-written like content.html/roster.html.
+<!-- 課表 — the weekly timetable, hand-written like content.html/roster.html.
+     TWO VIEWS of one dataset (2026-08-13): 依分校 (a branch's whole week) and
+     依老師 (one teacher's week across ALL branches — 6 of 14 staff teach at more
+     than one). The teacher view is DERIVED from the same BRANCHES constant, never
+     a second copy, so the two cannot drift apart.
      The timetable itself is HARDCODED in the SCHEDULE constant below (it changes
      once a semester — edit it there, commit, Pages redeploys). No Supabase reads;
      auth.js gates the page like every other tool. No PII, no bank content.
@@ -84,14 +88,27 @@ th.slot .t { display: block; font-weight: 400; color: var(--muted); margin-top: 
 /* Long class names wrap inside their fixed-width cell rather than stretching it. */
 .chip span { min-width: 0; overflow-wrap: anywhere; }
 
-/* 分校 tabs — one branch's timetable at a time (頭份 / 新竹). */
-.tabs { display: flex; gap: 8px; margin: 0 0 14px; }
+/* 檢視 toggle — 依分校 / 依老師. Deliberately a different shape and colour from
+   the pills below it, so "which timetable am I looking at" and "whose" never
+   read as the same control. */
+.modes { display: flex; align-items: center; gap: 6px; margin: 0 0 10px; }
+.modes .hd { font-size: 13px; color: var(--muted); margin-right: 2px; }
+.modes button { font-size: 13px; font-weight: 600; padding: 5px 13px; }
+.modes button.on { background: var(--ink); border-color: var(--ink); color: #fff; }
+
+/* pills — 分校 (頭份/新竹/竹南) in branch view, 老師 in teacher view. */
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
 .tabs button {
   font-weight: 600; border-radius: 999px; padding: 6px 16px;
 }
 .tabs button.on {
   background: var(--brand); border-color: var(--brand); color: #fff;
 }
+.tabs button b {
+  font-size: 11px; font-weight: 700; border-radius: 99px;
+  padding: 1px 7px; margin-right: 6px; background: var(--bg); color: var(--brand);
+}
+.tabs button.on b { background: rgba(255, 255, 255, .85); }
 
 .chip {
   display: flex; align-items: center; justify-content: space-between; gap: 6px;
@@ -107,7 +124,14 @@ th.slot .t { display: block; font-weight: 400; color: var(--muted); margin-top: 
 .chip.英文 { background: #fdeae4; color: #b23a14; border-color: #f7cfc2; }
 .chip.自然 { background: #e6f3ec; color: #17603a; border-color: #c6e4d3; }
 .chip.國文 { background: #fdf4d7; color: #8a6a06; border-color: #f3e2a4; }
+/* Teacher view: the badge carries the 分校 instead of the teacher, and the chip
+   grows a second line for the time — which varies per branch, so it cannot be
+   hoisted into the row header the way the branch view does it. */
+.chip.tv { flex-direction: column; align-items: stretch; gap: 2px; }
+.chip.tv .r1 { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.chip.tv .tm { font-size: 11px; font-weight: 400; opacity: .8; }
 .note { font-size: 12px; color: var(--muted); margin: 10px 2px 0; }
+.note .warn { color: var(--brand-orange); font-weight: 600; }
 
 /* 授課老師 legend — the grid carries short codes so the cells stay narrow;
    this maps each code to the teacher's full name. */
@@ -147,6 +171,7 @@ th.slot .t { display: block; font-weight: 400; color: var(--muted); margin-top: 
 <main>
   <h1 id="title">家偉課表 115學年</h1>
   <p class="sub">自 2026-08-24（民國115學年）起生效 · 依總表整理</p>
+  <div class="modes no-print" id="modes"></div>
   <div class="tabs no-print" id="tabs"></div>
   <div class="sheet"><table id="grid"></table></div>
   <div class="legend" id="legend"></div>
@@ -298,10 +323,108 @@ const DAYS = ["一", "二", "三", "四", "五", "六"];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g,
   (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
 
-let selBranch = 0;   // index into BRANCHES; 頭份 is the default view
+let selBranch = 0;              // index into BRANCHES; 頭份 is the default view
+let viewMode = "branch";        // "branch" (依分校) | "teacher" (依老師)
+let selTeacher = "";            // teacher code, in teacher view
+
+// ── teacher view: derived entirely from BRANCHES ────────────────────────────
+// Nothing below is a second copy of the timetable — the whole point is that
+// 老師課表 is a re-slice of the same rows, so it cannot drift from 分校課表.
+
+// A band's `time` reads "20:05–21:30 · 一/四 19:30–21:00": a base window, then
+// day-scoped overrides. The branch view prints that string whole; the teacher
+// view mixes branches in one row, so it has to resolve it down to ONE window
+// for the actual weekday.
+function slotTime(time, d) {
+  let base = "";
+  for (const seg of String(time).split("·")) {
+    const m = seg.match(/(\d{1,2}:\d{2})[–-](\d{1,2}:\d{2})/);
+    if (!m) continue;
+    const days = seg.slice(0, m.index).match(/[一二三四五六]/g);
+    if (days) { if (days.includes(DAYS[d - 1])) return m[0]; }
+    else base = m[0];
+  }
+  return base;
+}
+const toMin = (hhmm) => {
+  const [h, m] = hhmm.split(":"); return Number(h) * 60 + Number(m);
+};
+function span(c) {                       // → [startMin, endMin] or null
+  const m = slotTime(c.time, c.d).match(/(\d{1,2}:\d{2})[–-](\d{1,2}:\d{2})/);
+  return m ? [toMin(m[1]), toMin(m[2])] : null;
+}
+
+// Every class a teacher code holds, across ALL branches.
+function teacherClasses(code) {
+  const out = [];
+  for (const b of BRANCHES) for (const s of b.schedule) for (const c of s.cls) {
+    if (c.t === code) out.push({ ...c, br: b.name, label: s.label, time: s.time });
+  }
+  return out;
+}
+
+// Codes in first-appearance order across branches, so 頭份 staff lead — same
+// order the branch tabs are in.
+function allTeacherCodes() {
+  const codes = [];
+  for (const b of BRANCHES) for (const s of b.schedule) for (const c of s.cls) {
+    if (c.t && !codes.includes(c.t)) codes.push(c.t);
+  }
+  return codes;
+}
+
+// Band labels in canonical order (週六下午 → … → 資優班), taken from the order
+// they appear in the branch data rather than hardcoded, so a new band shows up
+// in the teacher view for free.
+function allBandLabels() {
+  const out = [];
+  for (const b of BRANCHES) for (const s of b.schedule) {
+    if (!out.includes(s.label)) out.push(s.label);
+  }
+  return out;
+}
+
+// Two of the same teacher's classes whose real time windows collide. Same-day
+// only — this is about a person being in two places, not a room conflict.
+function teacherOverlaps(code) {
+  const cls = teacherClasses(code), out = [];
+  for (let i = 0; i < cls.length; i++) for (let j = i + 1; j < cls.length; j++) {
+    const a = cls[i], b = cls[j];
+    if (a.d !== b.d) continue;
+    const A = span(a), B = span(b);
+    if (A && B && A[0] < B[1] && B[0] < A[1]) out.push([a, b]);
+  }
+  return out;
+}
+
+function renderModes() {
+  const modes = [["branch", "依分校"], ["teacher", "依老師"]];
+  document.getElementById("modes").innerHTML = `<span class="hd">檢視</span>` +
+    modes.map(([k, label]) => `<button type="button" data-m="${k}" class="${
+      k === viewMode ? "on" : ""}">${label}</button>`).join("");
+  document.querySelectorAll("#modes button").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      viewMode = btn.dataset.m;
+      if (viewMode === "teacher" && !selTeacher) selTeacher = allTeacherCodes()[0];
+      renderAll();
+    }));
+}
 
 function renderTabs() {
-  document.getElementById("tabs").innerHTML = BRANCHES.map((b, i) =>
+  const el = document.getElementById("tabs");
+  if (viewMode === "teacher") {
+    el.innerHTML = allTeacherCodes().map((code) => {
+      const n = teacherClasses(code).length;
+      const brs = [...new Set(teacherClasses(code).map((c) => c.br))].join("／");
+      return `<button type="button" data-t="${esc(code)}" title="${esc(brs)}｜${n} 堂"
+        class="${code === selTeacher ? "on" : ""}"><b>${esc(code)}</b>${
+        esc(TEACHERS[code] === code ? "" : (TEACHERS[code] || "待補"))}</button>`;
+    }).join("");
+    document.querySelectorAll("#tabs button").forEach((btn) =>
+      btn.addEventListener("click", () => { selTeacher = btn.dataset.t; renderAll(); }));
+    return;
+  }
+  el.innerHTML = BRANCHES.map((b, i) =>
     `<button type="button" data-i="${i}" class="${i === selBranch ? "on" : ""}">${
       esc(b.name)}</button>`).join("");
   document.querySelectorAll("#tabs button").forEach((btn) =>
@@ -309,6 +432,30 @@ function renderTabs() {
       selBranch = Number(btn.dataset.i);
       renderAll();
     }));
+}
+
+// 老師課表 — the same rows sliced by teacher instead of by branch. Rows are the
+// band labels this teacher actually works, so an 只上第二節 teacher gets a
+// two-row table rather than a mostly-empty five-row one.
+function renderTeacher() {
+  const cls = teacherClasses(selTeacher);
+  const labels = allBandLabels().filter((l) => cls.some((c) => c.label === l));
+  const head = `<thead><tr><th class="slot"></th>${
+    DAYS.map((d) => `<th>${d}</th>`).join("")}</tr></thead>`;
+  const rows = labels.map((label) => `
+    <tr>
+      <th class="slot">${esc(label)}</th>
+      ${DAYS.map((_, i) => `<td>${cls
+        .filter((c) => c.label === label && c.d === i + 1).map((c) => `
+        <div class="chip tv ${esc(c.subj)}">
+          <div class="r1"><span>${esc(c.name)}</span><span class="tch">${esc(c.br)}</span></div>
+          <div class="tm">${esc(slotTime(c.time, c.d))}</div>
+        </div>`).join("")}</td>`).join("")}
+    </tr>`).join("");
+  document.getElementById("grid").innerHTML = head + `<tbody>${rows}</tbody>`;
+  const name = TEACHERS[selTeacher];
+  document.getElementById("title").textContent =
+    `家偉課表 115學年 · ${name && name !== selTeacher ? name : selTeacher} 老師`;
 }
 
 function render() {
@@ -349,11 +496,38 @@ function renderLegend() {
 }
 
 function renderNotes() {
-  document.getElementById("notes").innerHTML = (BRANCHES[selBranch].notes || [])
+  const el = document.getElementById("notes");
+  if (viewMode === "teacher") {
+    const cls = teacherClasses(selTeacher);
+    const brs = [...new Set(cls.map((c) => c.br))];
+    const lines = [`共 ${cls.length} 堂，分校：${esc(brs.join("／"))}。`];
+    // Overlaps are surfaced, not hidden. Most are a 25-minute tail where a
+    // 19:30 band starts before the 18:30 band's nominal 19:55 end — the times
+    // here are per-BAND, not per-class, so that is usually just granularity.
+    // A 跨分校 overlap is a different animal: the teacher must physically move.
+    for (const [a, b] of teacherOverlaps(selTeacher)) {
+      const cross = a.br !== b.br;
+      lines.push(`<span class="${cross ? "warn" : ""}">${cross ? "跨分校時段重疊" : "時段重疊"
+        } — 週${DAYS[a.d - 1]}：${esc(a.br)}·${esc(a.name)} ${esc(slotTime(a.time, a.d))}　與　${
+        esc(b.br)}·${esc(b.name)} ${esc(slotTime(b.time, b.d))}</span>`);
+    }
+    el.innerHTML = lines.map((n) => `<p class="note">＊ ${n}</p>`).join("");
+    return;
+  }
+  el.innerHTML = (BRANCHES[selBranch].notes || [])
     .map((n) => `<p class="note">＊ ${esc(n)}</p>`).join("");
 }
 
-function renderAll() { renderTabs(); render(); renderLegend(); renderNotes(); }
+function renderAll() {
+  renderModes();
+  renderTabs();
+  // In teacher view the 分校 lives in each chip's badge, so the teacher legend
+  // would be a legend for a column that isn't there.
+  document.getElementById("legend").style.display =
+    viewMode === "teacher" ? "none" : "";
+  if (viewMode === "teacher") renderTeacher(); else { render(); renderLegend(); }
+  renderNotes();
+}
 
 (async () => {
   await window.authGate();
