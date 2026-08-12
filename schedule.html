@@ -167,6 +167,14 @@ const TEACHERS = {
   "E": "Emily",
   "A": "Anita",
   "G": "Gorman",
+  // 新竹 / 竹南 (2026-08-13). 浩翰 and 冠庭 go by the code itself — that is the
+  // full name, not a missing entry, so they must be present here or they would
+  // render 待補. renderLegend() collapses the repeat.
+  "邱": "Kyle",
+  "浩翰": "浩翰",
+  "鄭": "鄭畯中",
+  "冠庭": "冠庭",
+  "金": "金浩",
 };
 
 // ── the timetable, PER 分校 ─────────────────────────────────────────────────
@@ -332,6 +340,9 @@ function renderLegend() {
   document.getElementById("legend").innerHTML =
     `<span class="hd">授課老師</span>` + codes.map((code) => {
       const name = TEACHERS[code];
+      // A teacher whose code IS their name (浩翰, 冠庭) gets the badge alone —
+      // spelling it out would read 「浩翰 浩翰」.
+      if (name === code) return `<span class="lg"><b>${esc(code)}</b></span>`;
       return `<span class="lg${name ? "" : " todo"}"><b>${esc(code)}</b>${
         esc(name || "待補")}</span>`;
     }).join("");
