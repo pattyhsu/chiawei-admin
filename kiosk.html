@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>家偉補習班 · 打卡機</title>
+<!-- 打卡機 — the front-desk tablet, one per 分校. Teachers tap their name,
+     the camera snaps a photo, the punch lands with a SERVER timestamp.
+
+     ⚠️ THIS PAGE DOES NOT USE auth.js. The tablet signs in as a dedicated
+     kiosk account (scripts/create_kiosk.py) whose role is `student` — the
+     staff gate would (correctly) bounce it. The gate here is:
+     session + rpc is_kiosk() — membership in kiosk_devices, not role.
+
+     What the DB lets this standing session do (migration 20260812000007,
+     pgTAP 22 — the page is NOT the boundary):
+       * insert near-now, photo-backed punches for ACTIVE STAFF only
+       * see the last 24 h of punches (the 今天誰已打卡 grid state)
+       * void ITS OWN punch within 5 minutes (the 打錯了？撤銷 button)
+       * upload to punch-photos (INSERT only — it cannot browse old photos)
+     Everything else — roster, bank, other tables — returns nothing.
+
+     Camera: getUserMedia needs HTTPS (✓ on admin.chiaweiedu.com) and one
+     permission grant per device; snapshots go out as ~480px JPEGs. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sb.js"></script>
+<style>
+:root {
+  --brand: #2547c7; --orange: #ef5226; --ok: #1e7a44;
+  --bg: #f6f7fb; --surface: #fff; --ink: #1b1f2a; --muted: #6b7280; --line: #e3e6ee;
+  --danger: #c0362c;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 20px; color: var(--ink); background: var(--bg); visibility: hidden;
+  font-family: "PingFang TC", "Noto Sans TC", system-ui, -apple-system, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 980px; margin: 0 auto; }
+header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
+h1 { font-size: 22px; color: var(--brand); margin: 0; }
+.clock { margin-left: auto; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.cols { display: grid; grid-template-columns: 300px 1fr; gap: 16px; }
+@media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+.cam { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+video { width: 100%; border-radius: 9px; background: #111; aspect-ratio: 4 / 3; object-fit: cover; }
+.punchbtns { display: flex; gap: 10px; margin-top: 12px; }
+.punchbtns button { flex: 1; font: inherit; font-size: 18px; font-weight: 800; cursor: pointer;
+  border-radius: 10px; padding: 16px 0; border: 1px solid var(--line); background: #fff; color: var(--ink); }
+.punchbtns button.in { background: var(--brand); border-color: var(--brand); color: #fff; }
+.punchbtns button:disabled { opacity: .45; cursor: default; }
+.camnote { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.7; }
+.err { background: #fdecea; border: 1px solid #f5c2bd; color: var(--danger);
+  border-radius: 8px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; display: none; }
+.gridtitle { font-size: 15px; margin: 0 0 8px; color: var(--muted); }
+.names { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.names button { font: inherit; cursor: pointer; text-align: center; background: var(--surface);
+  border: 2px solid var(--line); border-radius: 12px; padding: 16px 8px; }
+.names button.on { border-color: var(--brand); background: #eef1fc; }
+.names .nm { font-size: 18px; font-weight: 800; }
+.names .st { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.names .st.in { color: var(--ok); font-weight: 700; }
+.overlay { position: fixed; inset: 0; background: rgba(20, 24, 40, .75); display: none;
+  align-items: center; justify-content: center; z-index: 50; }
+.overlay.show { display: flex; }
+.confirm { background: #fff; border-radius: 16px; padding: 22px; width: min(430px, 92vw); text-align: center; }
+.confirm img { width: 240px; border-radius: 10px; }
+.confirm .big { font-size: 22px; font-weight: 800; margin: 10px 0 2px; }
+.confirm .time { font-size: 16px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.confirm .row { display: flex; gap: 10px; margin-top: 16px; }
+.confirm button { flex: 1; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer;
+  border-radius: 9px; padding: 12px 0; border: 1px solid var(--line); background: #fff; }
+.confirm button.undo { color: var(--danger); border-color: #f0b9b3; }
+.confirm .count { font-size: 12px; color: var(--muted); margin-top: 8px; }
+.foot { margin-top: 18px; font-size: 12px; color: var(--muted); display: flex; gap: 10px; }
+.foot button { margin-left: auto; font: inherit; font-size: 12px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 7px; padding: 4px 10px; background: #fff; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>打卡機</h1>
+    <span id="device" style="font-size:13px;color:var(--muted)"></span>
+    <span class="clock" id="clock"></span>
+  </header>
+  <div class="err" id="err"></div>
+  <div class="cols">
+    <div class="cam">
+      <video id="cam" autoplay playsinline muted></video>
+      <div class="punchbtns">
+        <button type="button" class="in" id="btn-in" disabled>上班打卡</button>
+        <button type="button" id="btn-out" disabled>下班打卡</button>
+      </div>
+      <p class="camnote">按下的瞬間拍照存證，時間由伺服器蓋章。打錯人？打完 10 秒內可以直接撤銷，再點自己的名字重打。</p>
+    </div>
+    <div>
+      <p class="gridtitle" id="gridtitle">點自己的名字，再按打卡</p>
+      <div class="names" id="names"></div>
+    </div>
+  </div>
+  <div class="foot">
+    <span>這台平板只能打卡與傳照片；名冊、題庫等一律讀不到（資料庫端強制）。</span>
+    <button type="button" id="btn-signout">登出</button>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="confirm">
+    <img id="cf-img" alt="打卡照片">
+    <div class="big" id="cf-name"></div>
+    <div class="time" id="cf-time"></div>
+    <div class="row">
+      <button type="button" class="undo" id="cf-undo">打錯了？撤銷</button>
+      <button type="button" id="cf-ok">好</button>
+    </div>
+    <div class="count" id="cf-count"></div>
+  </div>
+</div>
+
+<canvas id="snap" hidden></canvas>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const pad = (n) => String(n).padStart(2, "0");
+const hm = (d) => pad(d.getHours()) + ":" + pad(d.getMinutes());
+const localDate = (d) => d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+
+let STAFF = [];         // punch_roster() rows
+let TODAY = [];         // last-24h punches, filtered to the local today
+let PICKED = null;      // staff id
+let STREAM = null;
+let LAST = null;        // {id, name, kind, at} — the just-made punch (undo target)
+let overlayTimer = null, overlayLeft = 0;
+
+function fail(msg) { const e = $("err"); e.textContent = msg; e.style.display = ""; }
+
+function tickClock() {
+  const d = new Date();
+  $("clock").textContent =
+    `${d.getMonth() + 1}/${d.getDate()}（${"日一二三四五六"[d.getDay()]}）${hm(d)}`;
+}
+
+function stateOf(sid) {
+  const mine = TODAY.filter((p) => p.teacher_id === sid && !p.voided)
+    .sort((a, b) => a.punched_at.localeCompare(b.punched_at));
+  if (!mine.length) return { text: "未打卡", cls: "" };
+  const last = mine[mine.length - 1];
+  const t = hm(new Date(last.punched_at));
+  return last.kind === "in"
+    ? { text: "✓ " + t + " 已上班", cls: "in" }
+    : { text: t + " 已下班", cls: "" };
+}
+
+function renderGrid() {
+  $("names").innerHTML = STAFF.map((s) => {
+    const st = stateOf(s.id);
+    return `
+    <button type="button" data-id="${esc(s.id)}" class="${PICKED === s.id ? "on" : ""}">
+      <div class="nm">${esc(s.full_name)}</div>
+      <div class="st ${st.cls}">${esc(st.text)}</div>
+    </button>`;
+  }).join("");
+  document.querySelectorAll("#names button").forEach((b) =>
+    b.addEventListener("click", () => {
+      PICKED = PICKED === b.dataset.id ? null : b.dataset.id;
+      $("btn-in").disabled = $("btn-out").disabled = !PICKED || !STREAM;
+      renderGrid();
+    }));
+}
+
+async function loadToday() {
+  const { data, error } = await window.sb.from("teacher_punches")
+    .select("id, teacher_id, kind, punched_at, voided")
+    .order("punched_at", { ascending: true });
+  if (error) return;   // the grid state is cosmetic; punches still work
+  const today = localDate(new Date());
+  TODAY = (data || []).filter((p) => localDate(new Date(p.punched_at)) === today);
+  renderGrid();
+}
+
+function snapBlob() {
+  const video = $("cam"), canvas = $("snap");
+  const w = 480, h = Math.round((video.videoHeight / video.videoWidth) * w) || 360;
+  canvas.width = w; canvas.height = h;
+  canvas.getContext("2d").drawImage(video, 0, 0, w, h);
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.72));
+}
+
+function showConfirm(photoUrl, name, kind, when) {
+  $("cf-img").src = photoUrl;
+  $("cf-name").textContent = name + " · " + (kind === "in" ? "上班" : "下班");
+  $("cf-time").textContent = `${when.getMonth() + 1}/${when.getDate()} ${hm(when)}`;
+  $("overlay").classList.add("show");
+  overlayLeft = 10;
+  clearInterval(overlayTimer);
+  overlayTimer = setInterval(() => {
+    overlayLeft -= 1;
+    $("cf-count").textContent = overlayLeft + " 秒後自動關閉";
+    if (overlayLeft <= 0) hideConfirm();
+  }, 1000);
+  $("cf-count").textContent = "10 秒後自動關閉";
+}
+function hideConfirm() {
+  clearInterval(overlayTimer);
+  $("overlay").classList.remove("show");
+  LAST = null;
+}
+
+async function punch(kind) {
+  if (!PICKED || !STREAM) return;
+  const staff = STAFF.find((s) => s.id === PICKED);
+  $("btn-in").disabled = $("btn-out").disabled = true;
+  try {
+    const blob = await snapBlob();
+    const d = new Date();
+    const key = `${d.getFullYear()}-${pad(d.getMonth() + 1)}/${crypto.randomUUID()}.jpg`;
+    const up = await window.sb.storage.from("punch-photos")
+      .upload(key, blob, { contentType: "image/jpeg" });
+    if (up.error) throw new Error("照片上傳失敗：" + up.error.message);
+    const ins = await window.sb.from("teacher_punches")
+      .insert({ teacher_id: PICKED, kind, photo_key: key })
+      .select("id, punched_at").single();
+    if (ins.error) throw new Error("打卡失敗：" + ins.error.message);
+    LAST = { id: ins.data.id, name: staff.full_name, kind };
+    showConfirm(URL.createObjectURL(blob), staff.full_name, kind, new Date(ins.data.punched_at));
+    PICKED = null;
+    await loadToday();
+  } catch (e) {
+    fail(e.message || String(e));
+  }
+  $("btn-in").disabled = $("btn-out").disabled = true;
+  renderGrid();
+}
+
+async function undo() {
+  if (!LAST) { hideConfirm(); return; }
+  const { error } = await window.sb.from("teacher_punches")
+    .update({ voided: true, void_reason: "打卡機現場撤銷" }).eq("id", LAST.id);
+  if (error) { fail("撤銷失敗：" + error.message); return; }
+  hideConfirm();
+  await loadToday();
+}
+
+async function initCamera() {
+  try {
+    STREAM = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user", width: { ideal: 640 } }, audio: false,
+    });
+    $("cam").srcObject = STREAM;
+  } catch (e) {
+    fail("相機無法使用——打卡需要拍照。請在瀏覽器允許相機權限後重新整理。");
+  }
+}
+
+// ── gate: session + is_kiosk() (NOT auth.js — see the header comment) ─────────
+(async () => {
+  const { data } = await window.sb.auth.getSession();
+  if (!data || !data.session) { location.replace("login.html?next=kiosk.html"); return; }
+  const kio = await window.sb.rpc("is_kiosk");
+  if (kio.error || kio.data !== true) {
+    // a signed-in NON-kiosk (say the owner) landed here — send them home
+    location.replace("index.html");
+    return;
+  }
+  document.body.style.visibility = "visible";
+  tickClock(); setInterval(tickClock, 15000);
+  $("btn-signout").addEventListener("click", async () => {
+    if (!confirm("登出後這台平板就不能打卡，要重新登入。確定？")) return;
+    await window.sb.auth.signOut(); location.replace("login.html");
+  });
+  $("btn-in").addEventListener("click", () => punch("in"));
+  $("btn-out").addEventListener("click", () => punch("out"));
+  $("cf-undo").addEventListener("click", undo);
+  $("cf-ok").addEventListener("click", hideConfirm);
+
+  const roster = await window.sb.rpc("punch_roster");
+  if (roster.error) { fail("讀取名單失敗：" + roster.error.message); return; }
+  STAFF = roster.data || [];
+  const dev = await window.sb.from("kiosk_devices").select("label").maybeSingle();
+  if (dev.data) $("device").textContent = dev.data.label || "";
+  await loadToday();
+  setInterval(loadToday, 60000);
+  initCamera();
+})();
+</script>
+</body>
+</html>

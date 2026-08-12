@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>家偉補習班 · 出勤紀錄</title>
+<!-- 出勤紀錄 — punches from the 打卡機 (kiosk.html), paired into per-day
+     rows + monthly hours. Hand-written, following tuition.html.
+
+     WHO SEES WHAT (RLS decides — the page just renders what comes back):
+       * owner   → everyone, plus photos (signed URLs), 作廢 and 補登
+       * 主任 + teachers → ONLY their own punches (Patty's call: 出勤 management
+         is the owner's alone; this page branches its UI on role to match)
+
+     Punches are IMMUTABLE except 作廢; a 補登 is a separate owner-entered row
+     (entered_by ≠ teacher_id) and renders labeled as such. Hours = earliest
+     un-voided 上班 → latest un-voided 下班 per local day, voided excluded. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sb.js"></script>
+<script>window.PAGE_ROLES = ["owner", "admin", "teacher"];</script>
+<script src="auth.js"></script>
+<style>
+:root {
+  --brand: #2547c7; --orange: #ef5226; --ok: #1e7a44;
+  --bg: #f6f7fb; --surface: #fff; --ink: #1b1f2a; --muted: #6b7280; --line: #e3e6ee;
+  --danger: #c0362c; --warn: #9a6b00;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px; color: var(--ink); background: var(--bg);
+  font-family: "PingFang TC", "Noto Sans TC", system-ui, -apple-system, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1020px; margin: 0 auto; }
+header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+h1 { font-size: 20px; color: var(--brand); margin: 0; }
+.sub { font-size: 13px; color: var(--muted); margin: 0 0 16px; }
+a.back { font-size: 13px; color: var(--brand); text-decoration: none; margin-left: auto; }
+.bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+select, input { font: inherit; font-size: 13px; border: 1px solid var(--line);
+  border-radius: 7px; padding: 6px 9px; background: #fff; color: var(--ink); }
+button.act { font: inherit; font-size: 13px; cursor: pointer; border: 1px solid var(--brand);
+  border-radius: 7px; padding: 6px 12px; background: var(--brand); color: #fff; font-weight: 700; }
+button.ghost { font: inherit; font-size: 12px; cursor: pointer; border: 1px solid var(--line);
+  border-radius: 7px; padding: 3px 10px; background: #fff; color: var(--ink); }
+button.void { border-color: #f0b9b3; color: var(--danger); }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin: 0 0 16px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.card .k { font-size: 12px; color: var(--muted); }
+.card .v { font-size: 20px; font-weight: 800; margin-top: 2px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+th { background: #f0f2f9; font-weight: 700; font-size: 12px; color: #3c4257; }
+td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
+.warn { color: var(--warn); font-weight: 700; }
+.mk { font-size: 11px; color: var(--muted); }
+.voided-list { margin-top: 16px; }
+.voided-list td { color: var(--muted); text-decoration: line-through; }
+.voided-list .why { text-decoration: none; font-size: 12px; }
+h2 { font-size: 15px; margin: 20px 0 8px; }
+.addform { display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.msg { font-size: 12px; color: var(--muted); }
+.msg.err { color: var(--orange); font-weight: 700; }
+.empty { color: var(--muted); font-size: 14px; padding: 14px 2px; }
+.foot { display: flex; align-items: center; gap: 10px; margin-top: 20px; font-size: 12px; color: var(--muted); }
+.foot button { font: inherit; font-size: 12px; cursor: pointer; border: 1px solid var(--line);
+  border-radius: 7px; padding: 5px 10px; background: #fff; color: var(--ink); margin-left: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>出勤紀錄</h1>
+    <a class="back" href="index.html">← 回後台</a>
+  </header>
+  <p class="sub" id="subline">打卡機的紀錄。時數＝當天最早的上班到最晚的下班；已作廢不計。</p>
+
+  <div class="bar">
+    <select id="f-month"></select>
+    <select id="f-teacher" hidden><option value="">全部老師</option></select>
+    <span class="msg" id="msg"></span>
+  </div>
+
+  <div class="cards" id="totals"></div>
+  <div id="table"></div>
+  <div class="voided-list" id="voided"></div>
+
+  <div id="add-sec" hidden>
+    <h2>補登（漏打卡時用；會標記為負責人補登）</h2>
+    <div class="addform">
+      <select id="a-teacher"></select>
+      <select id="a-kind"><option value="in">上班</option><option value="out">下班</option></select>
+      <input id="a-when" type="datetime-local">
+      <input id="a-note" placeholder="原因（例：忘了打下班卡）" style="min-width:200px">
+      <button type="button" class="act" id="a-save">補登</button>
+      <span class="msg" id="a-msg"></span>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span id="who"></span>
+    <button type="button" id="btn-signout">登出</button>
+  </div>
+</div>
+<script>
+const ROLE_LABEL = { owner: "負責人", admin: "主任", teacher: "老師" };
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const pad = (n) => String(n).padStart(2, "0");
+const hm = (iso) => { const d = new Date(iso); return pad(d.getHours()) + ":" + pad(d.getMinutes()); };
+const localDate = (iso) => { const d = new Date(iso); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); };
+
+let ROWS = [];          // this month's punches (RLS-scoped)
+let NAMES = {};         // profile id -> name (owner/主任; teachers see only themselves anyway)
+let IS_OWNER = false;
+
+function monthOptions() {
+  const now = new Date(), opts = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    opts.push(`${d.getFullYear()}-${pad(d.getMonth() + 1)}`);
+  }
+  $("f-month").innerHTML = opts.map((m) =>
+    `<option value="${m}">${m.replace("-", " 年 ")} 月</option>`).join("");
+}
+
+function nameOf(id) {
+  if (id === window.CURRENT_USER.id) return NAMES[id] || "我";
+  return NAMES[id] || "—";
+}
+
+async function load() {
+  const [y, m] = $("f-month").value.split("-").map(Number);
+  const start = new Date(y, m - 1, 1), end = new Date(y, m, 1);
+  $("msg").textContent = "載入中…";
+  const { data, error } = await window.sb.from("teacher_punches")
+    .select("id, teacher_id, kind, punched_at, photo_key, entered_by, note, voided, void_reason")
+    .gte("punched_at", start.toISOString()).lt("punched_at", end.toISOString())
+    .order("punched_at", { ascending: true });
+  if (error) { $("msg").className = "msg err"; $("msg").textContent = error.message; return; }
+  $("msg").className = "msg"; $("msg").textContent = "";
+  ROWS = data || [];
+  render();
+}
+
+function render() {
+  const tFilter = $("f-teacher").value;
+  const live = ROWS.filter((p) => !p.voided && (!tFilter || p.teacher_id === tFilter));
+
+  // group by (teacher, local day)
+  const days = {};
+  for (const p of live) {
+    const k = p.teacher_id + "|" + localDate(p.punched_at);
+    (days[k] = days[k] || []).push(p);
+  }
+  const rows = Object.entries(days).map(([k, punches]) => {
+    const [tid, day] = k.split("|");
+    const ins = punches.filter((p) => p.kind === "in");
+    const outs = punches.filter((p) => p.kind === "out");
+    const pin = ins[0] || null, pout = outs[outs.length - 1] || null;
+    const hours = pin && pout
+      ? Math.max(0, (new Date(pout.punched_at) - new Date(pin.punched_at)) / 3600000) : null;
+    return { tid, day, pin, pout, hours, extra: punches.length > 2 };
+  }).sort((a, b) => b.day.localeCompare(a.day) || nameOf(a.tid).localeCompare(nameOf(b.tid), "zh-Hant"));
+
+  // monthly totals per teacher
+  const tot = {};
+  rows.forEach((r) => { if (r.hours != null) tot[r.tid] = (tot[r.tid] || 0) + r.hours; });
+  $("totals").innerHTML = Object.entries(tot).map(([tid, h]) => `
+    <div class="card"><div class="k">${esc(nameOf(tid))} · 本月時數</div>
+      <div class="v">${h.toFixed(1)} 小時</div></div>`).join("");
+
+  const cell = (p, tid) => {
+    if (!p) return `<span class="warn">未打卡 ⚠</span>`;
+    const bits = [hm(p.punched_at)];
+    if (p.entered_by !== p.teacher_id && !p.photo_key) bits.push(`<span class="mk">補登</span>`);
+    if (IS_OWNER && p.photo_key)
+      bits.push(`<button type="button" class="ghost photo" data-key="${esc(p.photo_key)}">照片</button>`);
+    if (IS_OWNER)
+      bits.push(`<button type="button" class="ghost void" data-id="${esc(p.id)}">作廢</button>`);
+    return bits.join(" ");
+  };
+
+  $("table").innerHTML = rows.length ? `
+    <table>
+      <thead><tr><th>日期</th><th>老師</th><th>上班</th><th>下班</th><th class="r">時數</th></tr></thead>
+      <tbody>${rows.map((r) => `
+        <tr>
+          <td>${esc(r.day.slice(5).replace("-", "/"))}（${"日一二三四五六"[new Date(r.day + "T00:00:00").getDay()]}）${r.extra ? ' <span class="warn" title="這天不只兩筆">多筆⚠</span>' : ""}</td>
+          <td>${esc(nameOf(r.tid))}</td>
+          <td>${cell(r.pin, r.tid)}</td>
+          <td>${cell(r.pout, r.tid)}</td>
+          <td class="r">${r.hours != null ? r.hours.toFixed(1) : "—"}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>` : `<p class="empty">這個月沒有出勤紀錄。</p>`;
+
+  // voided punches stay visible (struck through) — nothing ever disappears
+  const dead = ROWS.filter((p) => p.voided && (!tFilter || p.teacher_id === tFilter));
+  $("voided").innerHTML = dead.length ? `
+    <h2>已作廢</h2>
+    <table>
+      <tbody>${dead.map((p) => `
+        <tr>
+          <td>${esc(localDate(p.punched_at).slice(5).replace("-", "/"))} ${hm(p.punched_at)}</td>
+          <td>${esc(nameOf(p.teacher_id))} · ${p.kind === "in" ? "上班" : "下班"}</td>
+          <td class="why">${esc(p.void_reason || "")}</td>
+          <td class="why">${IS_OWNER && p.photo_key ? `<button type="button" class="ghost photo" data-key="${esc(p.photo_key)}">照片</button>` : ""}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>` : "";
+
+  document.querySelectorAll("button.photo").forEach((b) => b.addEventListener("click", async () => {
+    const { data, error } = await window.sb.storage.from("punch-photos")
+      .createSignedUrl(b.dataset.key, 120);
+    if (error || !data) { window.alert("照片讀取失敗"); return; }
+    window.open(data.signedUrl, "_blank", "noopener");
+  }));
+  document.querySelectorAll("button.void").forEach((b) => b.addEventListener("click", async () => {
+    const reason = window.prompt("作廢原因（必填）：", "");
+    if (reason == null) return;
+    if (!reason.trim()) { window.alert("要寫原因。"); return; }
+    const { error } = await window.sb.from("teacher_punches")
+      .update({ voided: true, void_reason: reason.trim() }).eq("id", b.dataset.id);
+    if (error) { window.alert("作廢失敗：" + error.message); return; }
+    load();
+  }));
+}
+
+(async () => {
+  await window.authGate();
+  if (!window.CURRENT_USER_ROLE) return;
+  const role = window.CURRENT_USER_ROLE;
+  IS_OWNER = role === "owner";
+  $("btn-signout").addEventListener("click", window.signOut);
+  $("who").textContent = `${window.CURRENT_USER.email} · ${ROLE_LABEL[role] || role}`;
+
+  monthOptions();
+  $("f-month").addEventListener("change", load);
+  $("f-teacher").addEventListener("change", render);
+
+  // names: owner/主任 can read all profiles; a teacher only their own row —
+  // which is fine, since RLS only returns their own punches anyway.
+  const { data: profs } = await window.sb.from("profiles").select("id, full_name, role, active");
+  (profs || []).forEach((p) => { NAMES[p.id] = p.full_name || ""; });
+
+  if (IS_OWNER) {
+    $("f-teacher").hidden = false;
+    $("add-sec").hidden = false;
+    const staff = (profs || []).filter((p) =>
+      ["owner", "admin", "teacher"].includes(p.role) && p.active !== false);
+    const opts = staff.map((p) => `<option value="${esc(p.id)}">${esc(p.full_name)}</option>`).join("");
+    $("f-teacher").innerHTML = `<option value="">全部老師</option>` + opts;
+    $("a-teacher").innerHTML = opts;
+    $("a-save").addEventListener("click", async () => {
+      const when = $("a-when").value, msg = $("a-msg");
+      if (!when) { msg.className = "msg err"; msg.textContent = "選時間"; return; }
+      const { error } = await window.sb.from("teacher_punches").insert({
+        teacher_id: $("a-teacher").value,
+        kind: $("a-kind").value,
+        punched_at: new Date(when).toISOString(),
+        note: $("a-note").value.trim() || null,
+      });
+      if (error) { msg.className = "msg err"; msg.textContent = error.message; return; }
+      msg.className = "msg"; msg.textContent = "已補登";
+      $("a-note").value = "";
+      load();
+    });
+  } else {
+    $("subline").textContent = "你自己的打卡紀錄（負責人才看得到全部與照片）。時數＝當天最早的上班到最晚的下班。";
+  }
+  load();
+})();
+</script>
+</body>
+</html>
