@@ -9,7 +9,8 @@
      The timetable itself is HARDCODED in the SCHEDULE constant below (it changes
      once a semester — edit it there, commit, Pages redeploys). No Supabase reads;
      auth.js gates the page like every other tool. No PII, no bank content.
-     Source: Patty's 家偉課表 總表 xlsx, 115學年, effective 2026-08-24. -->
+     Source: Patty's 家偉課表 總表 xlsx (新竹/竹南/頭份, 115上下學期), re-read
+     2026-08-12 — 頭份 unchanged, 新竹 filled in, 竹南 added. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="sb.js"></script>
 <script>window.PAGE_ROLES = ["owner", "admin", "teacher"];</script>
@@ -173,7 +174,9 @@ const TEACHERS = {
 // branch is its own tab so a 頭份 teacher never reads a 新竹 slot as theirs.
 // One block per row; d = weekday 1(一)…6(六). subj drives the chip colour and
 // must be one of 數學/英文/自然/國文 (same vocabulary as the classes roster).
-// 竹南 has no classes on the 總表 — add a branch here when it does.
+// A day whose times differ from the band is spelled out in the band's `time`
+// string (e.g. 頭份 六, 新竹 一/四) — that is how the 總表 writes it too, as a
+// parenthesised note at the bottom of that day's column.
 const BRANCHES = [
 { name: "頭份", notes: [
   "國一二國文為國一、國二合班上課；國三國文為隔週上課。",
@@ -231,11 +234,53 @@ const BRANCHES = [
 
 { name: "新竹", notes: [
   "暑期 7/8 月上課時間：第一節 下午14:00–15:30、第二節 16:00–17:30。",
-  "總表上新竹校僅列小英時段；其餘時段若有課，補進本頁即可。",
 ], schedule: [
-  { label: "小英", time: "17:30–18:45", cls: [
-    { d: 1, name: "小英", t: "G", subj: "英文" },
-    { d: 4, name: "小英", t: "G", subj: "英文" },
+  { label: "第一節", time: "18:30–19:55", cls: [
+    { d: 1, name: "國一英", t: "邱", subj: "英文" },
+    { d: 1, name: "國三數", t: "昇", subj: "數學" },
+    { d: 2, name: "國一數", t: "浩翰", subj: "數學" },
+    { d: 3, name: "國二理", t: "鄭", subj: "自然" },
+    { d: 4, name: "國一英", t: "邱", subj: "英文" },
+    { d: 4, name: "國三數", t: "昇", subj: "數學" },
+    { d: 5, name: "國一數", t: "浩翰", subj: "數學" },
+    { d: 5, name: "國三理", t: "冠庭", subj: "自然" },
+  ]},
+  { label: "第二節", time: "20:05–21:30 · 一/四 19:30–21:00", cls: [
+    { d: 1, name: "國二英", t: "邱", subj: "英文" },
+    { d: 1, name: "國三英", t: "G", subj: "英文" },
+    { d: 2, name: "國二數", t: "浩翰", subj: "數學" },
+    { d: 3, name: "國二理", t: "鄭", subj: "自然" },
+    { d: 4, name: "國二英", t: "邱", subj: "英文" },
+    { d: 4, name: "國三英", t: "G", subj: "英文" },
+    { d: 5, name: "國二數", t: "浩翰", subj: "數學" },
+    { d: 5, name: "國三理", t: "冠庭", subj: "自然" },
+  ]},
+]},
+
+{ name: "竹南", notes: [
+  "竹南校晚間為國中部兩節課。",
+], schedule: [
+  { label: "週六下午", time: "六 16:10–17:40", cls: [
+    { d: 6, name: "國二理", t: "昇", subj: "自然" },
+  ]},
+  { label: "第一節", time: "18:30–19:55", cls: [
+    { d: 1, name: "國一英", t: "E", subj: "英文" },
+    { d: 2, name: "國一數", t: "盈", subj: "數學" },
+    { d: 2, name: "國二數", t: "國傑", subj: "數學" },
+    { d: 2, name: "國三數", t: "金", subj: "數學" },
+    { d: 3, name: "國二理", t: "昇", subj: "自然" },
+    { d: 3, name: "國三英", t: "E", subj: "英文" },
+    { d: 4, name: "國一英", t: "E", subj: "英文" },
+    { d: 5, name: "國一數", t: "盈", subj: "數學" },
+    { d: 5, name: "國二數", t: "國傑", subj: "數學" },
+    { d: 6, name: "國三英", t: "E", subj: "英文" },
+  ]},
+  { label: "第二節", time: "20:05–21:30", cls: [
+    { d: 1, name: "國二英", t: "E", subj: "英文" },
+    { d: 2, name: "國三數", t: "金", subj: "數學" },
+    { d: 3, name: "國三理", t: "昇", subj: "自然" },
+    { d: 4, name: "國二英", t: "E", subj: "英文" },
+    { d: 6, name: "國三理", t: "昇", subj: "自然" },
   ]},
 ]},
 ];
