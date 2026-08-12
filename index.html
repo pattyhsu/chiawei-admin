@@ -8,10 +8,22 @@
 <!-- The launcher. This used to be a meta-refresh straight into receipt.html,
      which made the second tool unreachable by typing the bare domain.
 
-     PER-ROLE CARDS (2026-08-12): every tool card carries data-roles, and the
-     boot block hides cards the signed-in role may not use. This is DISPLAY
-     only — the per-page gate is each page's own PAGE_ROLES + auth.js, and the
-     real boundary is RLS in the database (see auth.js's header). -->
+     COLUMN LAYOUT (2026-08-12). Tools are grouped — 教學現場 / 收費 / 招生 /
+     人事 — and each group is its OWN COLUMN. The page height is then set by the
+     tallest group, not by the sum of all of them: twelve tools fit one screen,
+     and a thirteenth lengthens one column instead of the page. It was a single
+     460px column of twelve paragraph-length cards before, ~1900px of scrolling.
+
+     Descriptions are deliberately ONE SHORT LINE. The longer explanations that
+     used to live here are operational RULES (「帳號一律停用而不刪除…」) — they
+     belong inside the tool, where someone is about to act on them, not on a page
+     you pass through in two seconds.
+
+     PER-ROLE CARDS: every card carries data-roles and the boot block hides the
+     ones this role may not use, then hides any group left with no cards (which
+     is what keeps the teacher view from being a page with holes in it). This is
+     DISPLAY only — the per-page gate is each page's own PAGE_ROLES + auth.js,
+     and the real boundary is RLS in the database (see auth.js's header). -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="sb.js"></script>
 <script>window.PAGE_ROLES = ["owner", "admin", "teacher"];</script>
@@ -20,32 +32,65 @@
 :root {
   --brand: #2547c7; --brand-orange: #ef5226;
   --bg: #f6f7fb; --surface: #fff; --ink: #1b1f2a; --muted: #6b7280; --line: #e3e6ee;
+  /* group accents — on the headings only, so the cards stay calm */
+  --g-teach: #c2551f; --g-money: #2547c7; --g-mkt: #8a5a00; --g-hr: #6b7280;
 }
 * { box-sizing: border-box; }
 body {
-  margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px;
+  margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px 20px 32px;
   color: var(--ink); background: var(--bg);
   font-family: "PingFang TC", "Noto Sans TC", system-ui, -apple-system, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
-.wrap { width: 100%; max-width: 460px; }
+.wrap { width: 100%; max-width: 940px; }
 h1 { font-size: 20px; color: var(--brand); margin: 0 0 4px; }
 .sub { font-size: 13px; color: var(--muted); margin: 0 0 20px; }
+
+/* 4 columns must actually FIT (4×220 + 3×14 = 922 ≤ the 940 container), or one
+   group wraps to a second row and inherits the first row's height as a gap.
+   justify-content:start keeps the columns flush with the title for every role —
+   centring looked fine at 4 columns and badly offset at a teacher's 2. */
+.groups { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(190px, 220px));
+  justify-content: start; align-items: start; }
+.group[hidden] { display: none; }
+.group h2 { font-size: 12.5px; font-weight: 700; letter-spacing: .03em; margin: 0 0 8px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.group[data-g="teach"] h2 { color: var(--g-teach); }
+.group[data-g="money"] h2 { color: var(--g-money); }
+.group[data-g="mkt"]   h2 { color: var(--g-mkt); }
+.group[data-g="hr"]    h2 { color: var(--g-hr); }
+
 a.tool {
   display: block; text-decoration: none; color: inherit;
-  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
-  padding: 16px 18px; margin-bottom: 12px;
-  box-shadow: 0 6px 24px rgba(37, 71, 199, .06);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 11px; margin-bottom: 8px;
+  box-shadow: 0 4px 16px rgba(37, 71, 199, .05);
 }
 a.tool:hover { border-color: var(--brand); }
-a.tool .name { font-weight: 700; font-size: 16px; color: var(--brand); }
-a.tool .desc { font-size: 13px; color: var(--muted); margin-top: 4px; line-height: 1.6; }
 a.tool[hidden] { display: none; }
-.foot { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
+a.tool .name { display: flex; align-items: center; gap: 6px;
+  font-weight: 700; font-size: 14px; color: var(--brand); }
+a.tool .desc { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.45; }
+.badge { margin-left: auto; font-size: 11px; font-weight: 700; white-space: nowrap;
+  padding: 1px 7px; border-radius: 999px; background: #fdecea; color: #a83a22; display: none; }
+.badge.on { display: inline-block; }
+
+.foot { display: flex; align-items: center; gap: 12px; margin-top: 22px;
+  padding-top: 12px; border-top: 1px solid var(--line); }
 .foot .who { font-size: 12px; color: var(--muted); flex: 1; }
 button {
   font: inherit; font-size: 13px; cursor: pointer; border: 1px solid var(--line);
   border-radius: 7px; padding: 7px 12px; background: #fff; color: var(--ink);
+}
+/* Explicit steps below the desktop width: auto-fit would land on 3 columns on a
+   tablet, which wraps the fourth group raggedly. 2 + 2 reads as intentional.
+   On a phone the columns stack and cards go full width — same page, no separate
+   mobile layout to keep in step. */
+@media (max-width: 899px) {
+  .groups { grid-template-columns: repeat(2, minmax(0, 260px)); }
+}
+@media (max-width: 560px) {
+  .groups { grid-template-columns: minmax(0, 1fr); gap: 18px; }
 }
 </style>
 </head>
@@ -54,74 +99,71 @@ button {
   <h1>家偉補習班 · 管理後台</h1>
   <p class="sub">Admin · admin.chiaweiedu.com</p>
 
-  <a class="tool" href="receipt.html" data-roles="owner admin" hidden>
-    <div class="name">收據產生器 →</div>
-    <div class="desc">開立學費收據，四個分校共用一個版型；大寫金額自動換算，直接列印或存成 PDF。</div>
-  </a>
+  <div class="groups">
+    <section class="group" data-g="teach" hidden>
+      <h2>教學現場</h2>
+      <a class="tool" href="schedule.html" data-roles="owner admin teacher" hidden>
+        <div class="name">課表</div>
+        <div class="desc">每週時段與授課老師</div>
+      </a>
+      <a class="tool" href="roster.html" data-roles="owner admin teacher" hidden>
+        <div class="name">名冊</div>
+        <div class="desc" data-desc-teacher="唯讀・自己任教的班">班級、學生、任教老師</div>
+      </a>
+      <a class="tool" href="journal.html" data-roles="owner admin teacher" hidden>
+        <div class="name">老師日誌 <span class="badge" data-badge="journal"></span></div>
+        <div class="desc">進度・作業・班級狀況</div>
+      </a>
+      <a class="tool" href="rollcall.html" data-roles="owner admin teacher" hidden>
+        <div class="name">點名單</div>
+        <div class="desc">印出來上課手寫勾到</div>
+      </a>
+    </section>
 
-  <a class="tool" href="leads.html" data-roles="owner admin" hidden>
-    <div class="name">諮詢名單 →</div>
-    <div class="desc">官網「預約免費檢測」表單送出的家長名單：電話、孩子年級、想加強的科目。
-      聯絡後改狀態（待聯絡 → 已聯絡 → 已約檢測 → 結案），含個資、不對外。</div>
-  </a>
+    <section class="group" data-g="money" hidden>
+      <h2>收費</h2>
+      <a class="tool" href="receipt.html" data-roles="owner admin" hidden>
+        <div class="name">收據產生器</div>
+        <div class="desc">開收據，同時記帳</div>
+      </a>
+      <a class="tool" href="tuition.html" data-roles="owner admin" hidden>
+        <div class="name">收費台 <span class="badge" data-badge="due"></span></div>
+        <div class="desc">未繳、紀錄、班費設定</div>
+      </a>
+      <a class="tool" href="reports.html" data-roles="owner" hidden>
+        <div class="name">收費總覽</div>
+        <div class="desc">分校月報與收齊率</div>
+      </a>
+    </section>
 
-  <a class="tool" href="roster.html" data-roles="owner admin teacher" hidden>
-    <div class="name">名冊 →</div>
-    <div class="desc">班級、學生、誰教哪一班。出考卷和批改都以班級為單位，所以名冊是它們的來源。
-      老師為唯讀、只看得到自己任教的班。</div>
-  </a>
+    <section class="group" data-g="mkt" hidden>
+      <h2>招生</h2>
+      <a class="tool" href="leads.html" data-roles="owner admin" hidden>
+        <div class="name">諮詢名單 <span class="badge" data-badge="leads"></span></div>
+        <div class="desc">官網預約檢測的家長</div>
+      </a>
+      <a class="tool" href="offerings.html" data-roles="owner admin" hidden>
+        <div class="name">開課資訊台</div>
+        <div class="desc">官網公開的開課資訊</div>
+      </a>
+      <a class="tool" href="content.html" data-roles="owner admin" hidden>
+        <div class="name">內容行銷台</div>
+        <div class="desc">FB／IG／LINE 貼文</div>
+      </a>
+    </section>
 
-  <a class="tool" href="schedule.html" data-roles="owner admin teacher" hidden>
-    <div class="name">課表 →</div>
-    <div class="desc">頭份每週課表（115學年，8/24 起）：各班時段與授課老師，可直接列印或存成 PDF。</div>
-  </a>
-
-  <a class="tool" href="journal.html" data-roles="owner admin teacher" hidden>
-    <div class="name">老師日誌 →</div>
-    <div class="desc">一班一天一則：今天教到哪、出了什麼作業、班上狀況。
-      老師寫自己的班；負責人和主任看得到全部。</div>
-  </a>
-
-  <a class="tool" href="rollcall.html" data-roles="owner admin teacher" hidden>
-    <div class="name">點名單 →</div>
-    <div class="desc">選班級印出點名表格：學號、姓名、空白日期欄，上課手寫勾到。純列印，不記錄。</div>
-  </a>
-
-  <a class="tool" href="teachers.html" data-roles="owner admin" hidden>
-    <div class="name">老師帳號 →</div>
-    <div class="desc">建立老師登入、指派任教班級、停用離職帳號。密碼由系統產生、只顯示一次；
-      帳號一律停用而不刪除，過去的卷與批改紀錄才留得住。</div>
-  </a>
-
-  <a class="tool" href="offerings.html" data-roles="owner admin" hidden>
-    <div class="name">開課資訊台 →</div>
-    <div class="desc">發布官網與家長專區的開課資訊：新班、時段、開課日。
-      「開課中」的班會直接公開顯示，下架用「已收班」。</div>
-  </a>
-
-  <a class="tool" href="attendance.html" data-roles="owner admin teacher" hidden>
-    <div class="name">出勤紀錄 →</div>
-    <div class="desc">櫃檯平板打卡（拍照存證）的紀錄與每月時數。老師和主任只看得到自己；
-      負責人看全部、可作廢與補登。</div>
-  </a>
-
-  <a class="tool" href="tuition.html" data-roles="owner admin" hidden>
-    <div class="name">收費台 →</div>
-    <div class="desc">誰還沒繳、收費紀錄、每期班費與個人優惠。收錢在收據產生器「記帳並列印」，
-      這裡看帳；紀錄只能作廢不能改。</div>
-  </a>
-
-  <a class="tool" href="reports.html" data-roles="owner" hidden>
-    <div class="name">收費總覽 →</div>
-    <div class="desc">各分校每月實收、各期各班應收／已收／未收與收齊率。只有負責人看得到，
-      資料庫端強制。</div>
-  </a>
-
-  <a class="tool" href="content.html" data-roles="owner admin" hidden>
-    <div class="name">內容行銷台 →</div>
-    <div class="desc">FB / IG / LINE 貼文：審核每日自動產生的草稿、下載卡片、複製文案，
-      也可以手動建立榜單、活動、見證、躍升卡。</div>
-  </a>
+    <section class="group" data-g="hr" hidden>
+      <h2>人事</h2>
+      <a class="tool" href="teachers.html" data-roles="owner admin" hidden>
+        <div class="name">老師帳號</div>
+        <div class="desc">建立登入、指派班級</div>
+      </a>
+      <a class="tool" href="attendance.html" data-roles="owner admin teacher" hidden>
+        <div class="name">出勤紀錄</div>
+        <div class="desc" data-desc-teacher="自己的打卡與時數">打卡紀錄與每月時數</div>
+      </a>
+    </section>
+  </div>
 
   <div class="foot">
     <span class="who" id="who"></span>
@@ -131,20 +173,76 @@ button {
 <script>
 const ROLE_LABEL = { owner: "負責人", admin: "主任", teacher: "老師" };
 
+/** LOCAL today — never toISOString(), which is UTC and stamps the wrong day. */
+function todayLocal() {
+  const d = new Date(), p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** Count-only queries (head: true returns no rows, so PostgREST's 1000-row cap
+ *  is irrelevant here). Every badge FAILS SILENTLY to no badge — the launcher
+ *  must open even when a count errors, and a role that cannot see a table never
+ *  gets asked for its count because its card is already hidden. */
+async function paintBadge(key, run) {
+  const el = document.querySelector(`[data-badge="${key}"]`);
+  if (!el || el.closest("a.tool").hidden) return;
+  try {
+    const text = await run();
+    if (text) { el.textContent = text; el.classList.add("on"); }
+  } catch (e) { /* no badge; nothing else changes */ }
+}
+
+async function loadBadges() {
+  const countOf = async (q) => {
+    const { count, error } = await q;
+    if (error) throw error;
+    return count || 0;
+  };
+  await Promise.all([
+    paintBadge("leads", async () => {
+      const n = await countOf(window.sb.from("leads")
+        .select("*", { count: "exact", head: true }).eq("status", "new"));
+      return n ? `待聯絡 ${n}` : "";
+    }),
+    paintBadge("due", async () => {
+      const n = await countOf(window.sb.from("tuition_outstanding_v")
+        .select("*", { count: "exact", head: true }).gt("outstanding", 0));
+      return n ? `未繳 ${n}` : "";
+    }),
+    // Today's entries only — there is deliberately no "N/M" denominator: the
+    // 課表 is hardcoded JS, not data, so how many classes actually meet today
+    // is not something this page can know honestly.
+    paintBadge("journal", async () => {
+      const n = await countOf(window.sb.from("teacher_journals")
+        .select("*", { count: "exact", head: true }).eq("entry_date", todayLocal()));
+      return n ? `今天 ${n}` : "";
+    }),
+  ]);
+}
+
 (async () => {
   await window.authGate();
   if (!window.CURRENT_USER_ROLE) return;
   const role = window.CURRENT_USER_ROLE;
 
-  // Show only the tools this role may use. Cards start hidden so nothing
-  // flashes for a teacher while the gate resolves.
+  // Show this role's tools. Cards start hidden so nothing flashes for a teacher
+  // while the gate resolves.
   document.querySelectorAll("a.tool[data-roles]").forEach((a) => {
-    if (a.dataset.roles.split(/\s+/).includes(role)) a.hidden = false;
+    if (!a.dataset.roles.split(/\s+/).includes(role)) return;
+    a.hidden = false;
+    const d = a.querySelector("[data-desc-teacher]");
+    if (d && role === "teacher") d.textContent = d.dataset.descTeacher;
+  });
+  // A group with nothing left in it removes itself, so the columns close up.
+  document.querySelectorAll("section.group").forEach((g) => {
+    g.hidden = !g.querySelector("a.tool:not([hidden])");
   });
 
   document.getElementById("btn-signout").addEventListener("click", window.signOut);
   document.getElementById("who").textContent =
     `${window.CURRENT_USER.email} · ${ROLE_LABEL[role] || role}`;
+
+  loadBadges();
 })();
 </script>
 </body>

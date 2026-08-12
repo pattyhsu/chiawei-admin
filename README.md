@@ -17,7 +17,7 @@ Thirteen tools, across three staff tiers — **負責人 / 主任 / 老師** (se
 
 | File | What it is | Who |
 |---|---|---|
-| `index.html` | **Launcher** — cards filter by role (`data-roles`). | all staff |
+| `index.html` | **Launcher** — four groups, each its own column; cards filter by role (`data-roles`) and empty groups hide themselves. | all staff |
 | `receipt.html` | **GENERATED — do not edit by hand.** 收據產生器 + 記帳並列印. | 負責人 · 主任 |
 | `tuition.html` | 收費台 — 未繳 / 收費紀錄 / 期別與費用. **hand-written**. | 負責人 · 主任 |
 | `reports.html` | 收費總覽 — the financial roll-up. **hand-written**. | **負責人 only** |
