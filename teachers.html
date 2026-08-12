@@ -106,6 +106,9 @@ label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px
 .hint { font-size: 12px; color: var(--muted); line-height: 1.7; }
 
 ul.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+/* An explicit `display` beats the UA sheet's [hidden]{display:none}, so the
+   collapsed 已停用 list would render regardless of its hidden attribute. */
+[hidden] { display: none !important; }
 ul.list li {
   border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px;
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
@@ -202,6 +205,12 @@ ul.list li.off { opacity: .55; }
   <section class="pane">
     <h2>帳號列表</h2>
     <ul class="list" id="stafflist"></ul>
+    <!-- 停用'd accounts collapse in here. They can never be deleted (past 卷 and
+         批改紀錄 reference them), so without this the list only ever grows. -->
+    <div id="offwrap" hidden>
+      <button type="button" class="small" id="btn-offtoggle"></button>
+      <ul class="list" id="offlist" hidden style="margin-top:10px"></ul>
+    </div>
   </section>
 </main>
 
@@ -262,7 +271,24 @@ function render() {
   const ul = $("stafflist");
   if (!STAFF.length) { ul.innerHTML = '<li class="empty">還沒有帳號。</li>'; return; }
 
-  ul.innerHTML = STAFF.map((r) => {
+  // Active accounts are the list; 停用'd ones collapse below it. Deactivating is
+  // the only way to retire an account (papers/exams reference the profile), so
+  // the retired ones accumulate forever and must not crowd the working list.
+  const live = STAFF.filter((r) => r.active);
+  const off = STAFF.filter((r) => !r.active);
+  ul.innerHTML = rowsHtml(live) || '<li class="empty">沒有啟用中的帳號。</li>';
+  $("offwrap").hidden = !off.length;
+  if (off.length) {
+    $("offlist").innerHTML = rowsHtml(off);
+    const shown = !$("offlist").hidden;
+    $("btn-offtoggle").textContent = `已停用帳號（${off.length}）${shown ? " ▲" : " ▼"}`;
+  }
+  hookRows($("stafflist"));
+  hookRows($("offlist"));
+}
+
+function rowsHtml(rows) {
+  return rows.map((r) => {
     const mine = classesOf(r.id);
     const isTeacher = r.role === "teacher";
     const meta = [esc(r.username || "—"), ROLE_LABEL[r.role] || esc(r.role)];
@@ -291,13 +317,20 @@ function render() {
       <div class="actions">
         ${isTeacher && editing !== r.id
             ? `<button type="button" class="small" data-assign="${esc(r.id)}">指派班級</button>` : ""}
-        ${r.role !== "owner"
+        ${r.id !== window.CURRENT_USER.id
             ? `<button type="button" class="small ${r.active ? "danger" : ""}" data-active="${esc(r.id)}" data-to="${r.active ? "0" : "1"}">${r.active ? "停用" : "啟用"}</button>` : ""}
       </div>
       ${picker}
     </li>`;
   }).join("");
+}
 
+// Own row has no 停用 button — that is a self-lockout guard, not a rule about
+// owners. An owner MAY retire another owner (profiles_upd_staff allows it: a
+// 主任 cannot touch an owner row, but an owner can), which is how a handover
+// happens; the button used to be hidden on every owner row, so the only way to
+// do it was SQL.
+function hookRows(ul) {
   ul.querySelectorAll("[data-assign]").forEach((el) => el.addEventListener("click", () => {
     editing = el.dataset.assign; draftClasses = classesOf(editing); render();
   }));
@@ -421,6 +454,10 @@ function showIssued(username, password) {
     if (!open) $("f-username").focus();
   });
   $("btn-create").addEventListener("click", createTeacher);
+  $("btn-offtoggle").addEventListener("click", () => {
+    $("offlist").hidden = !$("offlist").hidden;
+    render();
+  });
   try { await refresh(); } catch (e) { fail(e); }
 })();
 </script>
