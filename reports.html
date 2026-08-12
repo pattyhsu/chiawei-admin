@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>家偉補習班 · 收費總覽</title>
+<!-- 收費總覽 — OWNER ONLY. Hand-written, following tuition.html.
+
+     Both tables come from SECURITY DEFINER RPCs (migration 20260812000006,
+     pgTAP 21) that check is_owner() INSIDE the function and raise 42501 for
+     anyone else — a 主任 opening this page (or calling the RPC from devtools)
+     gets an error, not numbers. The PAGE_ROLES gate below is the usual UX
+     courtesy; the RPC guard is the boundary. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sb.js"></script>
+<script>window.PAGE_ROLES = ["owner"];</script>
+<script src="auth.js"></script>
+<style>
+:root {
+  --brand: #2547c7; --orange: #ef5226; --ok: #1e7a44;
+  --bg: #f6f7fb; --surface: #fff; --ink: #1b1f2a; --muted: #6b7280; --line: #e3e6ee;
+  --danger: #c0362c;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px; color: var(--ink); background: var(--bg);
+  font-family: "PingFang TC", "Noto Sans TC", system-ui, -apple-system, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 960px; margin: 0 auto; }
+header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+h1 { font-size: 20px; color: var(--brand); margin: 0; }
+.sub { font-size: 13px; color: var(--muted); margin: 0 0 16px; }
+a.back { font-size: 13px; color: var(--brand); text-decoration: none; margin-left: auto; }
+h2 { font-size: 15px; margin: 20px 0 8px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.card .k { font-size: 12px; color: var(--muted); }
+.card .v { font-size: 21px; font-weight: 800; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.card .n { font-size: 11px; color: var(--muted); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+th { background: #f0f2f9; font-weight: 700; font-size: 12px; color: #3c4257; }
+td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
+.due { color: var(--danger); font-weight: 700; }
+.ok { color: var(--ok); }
+.empty { color: var(--muted); font-size: 14px; padding: 14px 2px; }
+.bar { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
+button.print { font: inherit; font-size: 13px; cursor: pointer; border: 1px solid var(--line);
+  border-radius: 7px; padding: 6px 12px; background: #fff; color: var(--ink); margin-left: auto; }
+.foot { display: flex; align-items: center; gap: 10px; margin-top: 20px; font-size: 12px; color: var(--muted); }
+.foot button { font: inherit; font-size: 12px; cursor: pointer; border: 1px solid var(--line);
+  border-radius: 7px; padding: 5px 10px; background: #fff; color: var(--ink); margin-left: auto; }
+@media print {
+  @page { size: A4 portrait; margin: 12mm; }
+  body { background: #fff; padding: 0; }
+  header .back, .bar, .foot { display: none !important; }
+  .wrap { max-width: none; }
+  * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>收費總覽</h1>
+    <a class="back" href="index.html">← 回後台</a>
+  </header>
+  <p class="sub">只有負責人打得開（資料庫端強制——不是只有畫面擋）。數字都排除已作廢的收據。</p>
+
+  <div class="bar">
+    <h2 style="margin:0">各分校 · 每月實收</h2>
+    <button type="button" class="print" onclick="window.print()">列印 / 存 PDF</button>
+  </div>
+  <div class="cards" id="branch-cards"></div>
+  <div id="branch-more"></div>
+
+  <h2>各期 · 各班收費狀況</h2>
+  <div id="class-table"></div>
+
+  <div class="foot">
+    <span id="who"></span>
+    <button type="button" id="btn-signout">登出</button>
+  </div>
+</div>
+<script>
+const BRANCH = { toufen: "頭份 家偉", hsinchu: "新竹 家偉", "zhunan-jiawei": "竹南 家緯", "zhunan-jiawei2": "竹南 佳偉" };
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const nt = (n) => Number(n ?? 0).toLocaleString("zh-TW");
+const ym = (iso) => { const d = String(iso).slice(0, 7).split("-"); return `${d[0]} 年 ${Number(d[1])} 月`; };
+
+(async () => {
+  await window.authGate();
+  if (!window.CURRENT_USER_ROLE) return;
+  $("btn-signout").addEventListener("click", window.signOut);
+  $("who").textContent = `${window.CURRENT_USER.email} · 負責人`;
+
+  const [bm, ct] = await Promise.all([
+    window.sb.rpc("tuition_report_branch_month"),
+    window.sb.rpc("tuition_report_class_term"),
+  ]);
+
+  // ── 分校 × 月 ──────────────────────────────────────────────────────────────
+  if (bm.error) {
+    $("branch-cards").innerHTML = `<p class="empty">讀取失敗：${esc(bm.error.message)}</p>`;
+  } else {
+    const rows = bm.data || [];
+    if (!rows.length) {
+      $("branch-cards").innerHTML = `<p class="empty">還沒有任何收費紀錄。</p>`;
+    } else {
+      const latest = rows[0].month;
+      const cur = rows.filter((r) => r.month === latest);
+      $("branch-cards").innerHTML = cur.map((r) => `
+        <div class="card">
+          <div class="k">${esc(BRANCH[r.branch] || r.branch)} · ${esc(ym(r.month))}</div>
+          <div class="v">${nt(r.collected)}</div>
+          <div class="n">${r.n_receipts} 張收據</div>
+        </div>`).join("");
+      const past = rows.filter((r) => r.month !== latest);
+      $("branch-more").innerHTML = past.length ? `
+        <h2>歷月明細</h2>
+        <table>
+          <thead><tr><th>月份</th><th>分校</th><th class="r">收據數</th><th class="r">實收</th></tr></thead>
+          <tbody>${past.map((r) => `
+            <tr><td>${esc(ym(r.month))}</td><td>${esc(BRANCH[r.branch] || r.branch)}</td>
+                <td class="r">${r.n_receipts}</td><td class="r">${nt(r.collected)}</td></tr>`).join("")}
+          </tbody>
+        </table>` : "";
+    }
+  }
+
+  // ── 期 × 班 ────────────────────────────────────────────────────────────────
+  if (ct.error) {
+    $("class-table").innerHTML = `<p class="empty">讀取失敗：${esc(ct.error.message)}</p>`;
+  } else {
+    const rows = ct.data || [];
+    $("class-table").innerHTML = rows.length ? `
+      <table>
+        <thead><tr><th>期別</th><th>班級</th><th class="r">人數</th>
+          <th class="r">應收</th><th class="r">已收</th><th class="r">未收</th><th class="r">收齊率</th></tr></thead>
+        <tbody>${rows.map((r) => {
+          const rate = r.expected > 0 ? Math.round((r.collected / r.expected) * 100) : 100;
+          return `
+          <tr>
+            <td>${esc(r.term_name)}</td><td>${esc(r.class_name)}</td>
+            <td class="r">${r.n_students}</td>
+            <td class="r">${nt(r.expected)}</td>
+            <td class="r">${nt(r.collected)}</td>
+            <td class="r ${r.outstanding > 0 ? "due" : "ok"}">${nt(r.outstanding)}</td>
+            <td class="r">${rate}%</td>
+          </tr>`; }).join("")}
+        </tbody>
+      </table>` : `<p class="empty">還沒有期別費用設定（到收費台 → 期別與費用）。</p>`;
+  }
+})();
+</script>
+</body>
+</html>
