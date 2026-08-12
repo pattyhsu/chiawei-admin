@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>家偉補習班 · 收費台</title>
+<!-- 收費台 — 未繳 / 收費紀錄 / 期別與費用. Hand-written, following leads.html.
+
+     Data model: migration 20260812000005 in chiawei-platform, pgTAP 20.
+     Recording a payment normally happens in receipt.html (記帳並列印) — this
+     page is the ledger/browse surface plus the fee-schedule config.
+
+     LEDGER RULES (enforced by the DB, mirrored by this UI):
+       * a payment is IMMUTABLE — the only write this page does against one is
+         作廢 (voided + void_reason); amounts/receipt_no can never change, and
+         a voided payment can never come back. Fix = 作廢 + re-enter in
+         receipt.html under a fresh 收據號碼.
+       * `total` is trigger-computed from the 項目 lines; never sent from here.
+       * fee schedule (期別/班費/個人優惠) is CONFIG — editable; 期別 soft-
+         retire via 停用 (fees reference them), 優惠 rows are deletable.
+       * 主任 and 負責人 both work this page (front-desk); the owner-only
+         surface is 收費總覽 (reports.html), not the raw rows.
+
+     ⚠️ PostgREST caps bare selects at 1000 rows — the 未繳 view is queried
+     PER 期別 (never unfiltered), which keeps it a few hundred rows. Keep it
+     that way if you touch the queries. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sb.js"></script>
+<script>window.PAGE_ROLES = ["owner", "admin"];</script>
+<script src="auth.js"></script>
+<style>
+:root {
+  --brand: #2547c7; --orange: #ef5226; --gold: #f8c414; --ok: #1e7a44;
+  --bg: #f6f7fb; --surface: #fff; --ink: #1b1f2a; --muted: #6b7280; --line: #e3e6ee;
+  --danger: #c0362c;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px; color: var(--ink); background: var(--bg);
+  font-family: "PingFang TC", "Noto Sans TC", system-ui, -apple-system, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 1020px; margin: 0 auto; }
+header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+h1 { font-size: 20px; color: var(--brand); margin: 0; }
+.sub { font-size: 13px; color: var(--muted); margin: 0 0 16px; }
+a.back { font-size: 13px; color: var(--brand); text-decoration: none; margin-left: auto; }
+.tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.tabs button { font: inherit; font-size: 13px; cursor: pointer; border: 1px solid var(--line);
+  border-radius: 999px; padding: 6px 14px; background: #fff; color: var(--muted); }
+.tabs button.on { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 700; }
+.bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+select, input { font: inherit; font-size: 13px; border: 1px solid var(--line);
+  border-radius: 7px; padding: 6px 9px; background: #fff; color: var(--ink); }
+input[type="number"] { width: 96px; text-align: right; }
+button.act { font: inherit; font-size: 13px; cursor: pointer; border: 1px solid var(--brand);
+  border-radius: 7px; padding: 6px 12px; background: var(--brand); color: #fff; font-weight: 700; }
+button.act:disabled { opacity: .5; cursor: default; }
+button.ghost { font: inherit; font-size: 12px; cursor: pointer; border: 1px solid var(--line);
+  border-radius: 7px; padding: 4px 10px; background: #fff; color: var(--ink); }
+button.void { border-color: #f0b9b3; color: var(--danger); }
+table { border-collapse: collapse; width: 100%; font-size: 13px; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+th { background: #f0f2f9; font-weight: 700; font-size: 12px; color: #3c4257; }
+td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
+tr.voided td { text-decoration: line-through; color: var(--muted); }
+tr.voided td .items { text-decoration: line-through; }
+.due { color: var(--danger); font-weight: 700; }
+.paid0 { color: var(--ok); }
+.pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #fdecea;
+  color: var(--danger); font-weight: 700; text-decoration: none !important; display: inline-block; }
+.items { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.msg { font-size: 12px; color: var(--muted); }
+.msg.err { color: var(--orange); font-weight: 700; }
+.empty { color: var(--muted); font-size: 14px; padding: 14px 2px; }
+h2 { font-size: 15px; margin: 22px 0 8px; }
+.hint { font-size: 12px; color: var(--muted); line-height: 1.7; }
+.foot { display: flex; align-items: center; gap: 10px; margin-top: 20px; font-size: 12px; color: var(--muted); }
+.foot button { font: inherit; font-size: 12px; cursor: pointer; border: 1px solid var(--line);
+  border-radius: 7px; padding: 5px 10px; background: #fff; color: var(--ink); margin-left: auto; }
+.sum { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+.sum b { color: var(--danger); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>收費台</h1>
+    <a class="back" href="index.html">← 回後台</a>
+  </header>
+  <p class="sub">收學費在<a href="receipt.html">收據產生器</a>「記帳並列印」；這裡看未繳、查紀錄、設定每期費用。
+    收費紀錄只能<b>作廢</b>不能改——打錯就作廢再重開一張。</p>
+
+  <div class="tabs" id="tabs"></div>
+  <div id="view"></div>
+
+  <div class="foot">
+    <span id="who"></span>
+    <button type="button" id="btn-signout">登出</button>
+  </div>
+</div>
+<script>
+const ROLE_LABEL = { owner: "負責人", admin: "主任", teacher: "老師" };
+const BRANCH = { toufen: "頭份 家偉", hsinchu: "新竹 家偉", "zhunan-jiawei": "竹南 家緯", "zhunan-jiawei2": "竹南 佳偉" };
+const METHOD = { cash: "現金", transfer: "轉帳", card: "刷卡", other: "其他" };
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const nt = (n) => Number(n ?? 0).toLocaleString("zh-TW");
+
+let TAB = "due";
+let TERMS = [], CLASSES = [], STUDENTS = [];
+let selTerm = null, selClass = "";
+
+async function loadBase() {
+  const [t, c, s] = await Promise.all([
+    window.sb.from("terms").select("*").order("starts_on", { ascending: false }),
+    window.sb.from("classes").select("id,name,grade,subject").eq("active", true).order("name"),
+    window.sb.from("students").select("id,full_name,student_no").eq("active", true)
+      .order("student_no", { nullsFirst: false }),
+  ]);
+  for (const r of [t, c, s]) if (r.error) throw r.error;
+  TERMS = t.data; CLASSES = c.data; STUDENTS = s.data;
+  if (!selTerm) {
+    const active = TERMS.filter((x) => x.active);
+    selTerm = active.length ? active[0].id : (TERMS[0] && TERMS[0].id);
+  }
+}
+
+function renderTabs() {
+  const defs = [["due", "未繳"], ["log", "收費紀錄"], ["fees", "期別與費用"]];
+  $("tabs").innerHTML = defs.map(([k, l]) =>
+    `<button data-t="${k}" class="${TAB === k ? "on" : ""}">${l}</button>`).join("");
+  document.querySelectorAll("#tabs button").forEach((b) =>
+    b.addEventListener("click", () => { TAB = b.dataset.t; render(); }));
+}
+
+function termOptions(sel) {
+  return TERMS.map((t) =>
+    `<option value="${t.id}"${t.id === sel ? " selected" : ""}>${esc(t.name)}${t.active ? "" : "（已停用）"}</option>`).join("");
+}
+
+// ── 未繳 ─────────────────────────────────────────────────────────────────────
+async function renderDue() {
+  const view = $("view");
+  view.innerHTML = `
+    <div class="bar">
+      <select id="f-term">${termOptions(selTerm)}</select>
+      <select id="f-class"><option value="">全部班級</option>${CLASSES.map((c) =>
+        `<option value="${c.id}"${selClass === c.id ? " selected" : ""}>${esc(c.name)}</option>`).join("")}</select>
+      <span class="msg" id="due-msg">載入中…</span>
+    </div>
+    <div id="due-table"></div>`;
+  $("f-term").addEventListener("change", (e) => { selTerm = e.target.value; renderDue(); });
+  $("f-class").addEventListener("change", (e) => { selClass = e.target.value; renderDue(); });
+  if (!selTerm) { $("due-msg").textContent = "先到「期別與費用」建立期別。"; return; }
+
+  // Always filtered by 期別 — see the header note about PostgREST's 1000-row cap.
+  let q = window.sb.from("tuition_outstanding_v").select("*").eq("term_id", selTerm);
+  if (selClass) q = q.eq("class_id", selClass);
+  const { data, error } = await q.order("class_name").order("full_name");
+  if (error) { $("due-msg").className = "msg err"; $("due-msg").textContent = error.message; return; }
+  $("due-msg").textContent = "";
+  const rows = data || [];
+  if (!rows.length) {
+    $("due-table").innerHTML = `<p class="empty">這一期還沒有設定班級費用（到「期別與費用」設定），或沒有符合的學生。</p>`;
+    return;
+  }
+  const dueRows = rows.filter((r) => r.outstanding > 0);
+  const totalDue = dueRows.reduce((a, r) => a + r.outstanding, 0);
+  $("due-table").innerHTML = `
+    <table>
+      <thead><tr><th>學生</th><th>班級</th><th class="r">應收</th><th class="r">已收</th><th class="r">未繳</th></tr></thead>
+      <tbody>${rows.map((r) => `
+        <tr>
+          <td>${esc(r.full_name)}</td>
+          <td>${esc(r.class_name)}</td>
+          <td class="r">${nt(r.expected)}</td>
+          <td class="r">${nt(r.paid)}</td>
+          <td class="r ${r.outstanding > 0 ? "due" : "paid0"}">${nt(r.outstanding)}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>
+    <p class="sum">${dueRows.length} 人未繳清 · 未繳合計 <b>${nt(totalDue)}</b> 元</p>`;
+}
+
+// ── 收費紀錄 ──────────────────────────────────────────────────────────────────
+async function renderLog() {
+  const view = $("view");
+  view.innerHTML = `
+    <div class="bar">
+      <input id="log-q" type="search" placeholder="🔍 收據號碼或學生姓名" style="min-width:220px">
+      <span class="msg" id="log-msg">載入中…</span>
+    </div>
+    <div id="log-table"></div>`;
+  const { data, error } = await window.sb.from("tuition_payments")
+    .select("id, branch, receipt_no, paid_on, method, total, voided, void_reason, note, students(full_name), tuition_payment_items(position, label, amount)")
+    .order("created_at", { ascending: false }).limit(200);
+  if (error) { $("log-msg").className = "msg err"; $("log-msg").textContent = error.message; return; }
+  $("log-msg").textContent = "顯示最近 200 筆";
+  const ROWS = data || [];
+
+  function paint() {
+    const q = $("log-q").value.trim().toLowerCase();
+    const rows = q ? ROWS.filter((r) =>
+      (r.receipt_no || "").includes(q) ||
+      ((r.students && r.students.full_name) || "").toLowerCase().includes(q)) : ROWS;
+    if (!rows.length) { $("log-table").innerHTML = `<p class="empty">沒有收費紀錄。</p>`; return; }
+    $("log-table").innerHTML = `
+      <table>
+        <thead><tr><th>收據</th><th>學生</th><th>分校</th><th>日期 · 方式</th><th class="r">金額</th><th></th></tr></thead>
+        <tbody>${rows.map((r) => `
+          <tr class="${r.voided ? "voided" : ""}" data-id="${esc(r.id)}">
+            <td>${esc(r.receipt_no)}${r.voided ? ` <span class="pill">已作廢${r.void_reason ? "：" + esc(r.void_reason) : ""}</span>` : ""}</td>
+            <td>${esc(r.students ? r.students.full_name : "")}</td>
+            <td>${esc(BRANCH[r.branch] || r.branch)}</td>
+            <td>${esc(r.paid_on)} · ${esc(METHOD[r.method] || r.method)}</td>
+            <td class="r">${nt(r.total)}
+              <div class="items">${(r.tuition_payment_items || [])
+                .sort((a, b) => a.position - b.position)
+                .map((i) => `${esc(i.label)} ${nt(i.amount)}`).join("｜")}</div></td>
+            <td>${r.voided ? "" : `<button type="button" class="ghost void">作廢</button>`}</td>
+          </tr>`).join("")}
+        </tbody>
+      </table>`;
+    $("log-table").querySelectorAll("button.void").forEach((b) =>
+      b.addEventListener("click", async () => {
+        const tr = b.closest("tr");
+        const reason = window.prompt("作廢原因（必填）：", "");
+        if (reason == null) return;
+        if (!reason.trim()) { window.alert("要寫作廢原因。"); return; }
+        b.disabled = true;
+        const { error } = await window.sb.from("tuition_payments")
+          .update({ voided: true, void_reason: reason.trim() }).eq("id", tr.dataset.id);
+        if (error) { window.alert("作廢失敗：" + error.message); b.disabled = false; return; }
+        renderLog();
+      }));
+  }
+  $("log-q").addEventListener("input", paint);
+  paint();
+}
+
+// ── 期別與費用 ────────────────────────────────────────────────────────────────
+async function renderFees() {
+  const view = $("view");
+  const [fees, ovr] = await Promise.all([
+    window.sb.from("class_fees").select("class_id, term_id, amount"),
+    window.sb.from("student_fee_overrides").select("student_id, class_id, term_id, amount, reason"),
+  ]);
+  if (fees.error || ovr.error) {
+    view.innerHTML = `<p class="empty">讀取失敗：${esc((fees.error || ovr.error).message)}</p>`;
+    return;
+  }
+  const FEES = fees.data || [], OVR = ovr.data || [];
+  const feeOf = (cid) => FEES.find((f) => f.class_id === cid && f.term_id === selTerm);
+
+  view.innerHTML = `
+    <h2 style="margin-top:0">期別</h2>
+    <table>
+      <thead><tr><th>名稱</th><th>起</th><th>迄</th><th></th></tr></thead>
+      <tbody>${TERMS.map((t) => `
+        <tr data-id="${t.id}" style="${t.active ? "" : "opacity:.55"}">
+          <td>${esc(t.name)}${t.active ? "" : "（已停用）"}</td>
+          <td>${esc(t.starts_on)}</td><td>${esc(t.ends_on)}</td>
+          <td><button type="button" class="ghost t-toggle">${t.active ? "停用" : "啟用"}</button></td>
+        </tr>`).join("")}
+      </tbody>
+    </table>
+    <div class="bar" style="margin-top:10px">
+      <input id="t-name" placeholder="期別名稱（例：115暑期）" style="min-width:170px">
+      <input id="t-start" type="date"><input id="t-end" type="date">
+      <button type="button" class="act" id="t-add">新增期別</button>
+      <span class="msg" id="t-msg"></span>
+    </div>
+
+    <h2>班級費用 <span class="hint">（每班每期的標準學費）</span></h2>
+    <div class="bar"><select id="fee-term">${termOptions(selTerm)}</select></div>
+    <table>
+      <thead><tr><th>班級</th><th class="r">本期費用</th><th></th></tr></thead>
+      <tbody>${CLASSES.map((c) => {
+        const f = feeOf(c.id);
+        return `
+        <tr data-cid="${c.id}">
+          <td>${esc(c.name)}</td>
+          <td class="r"><input type="number" min="0" step="100" class="fee-amt"
+              value="${f ? f.amount : ""}" placeholder="未設定"></td>
+          <td><button type="button" class="ghost fee-save">儲存</button> <span class="msg"></span></td>
+        </tr>`; }).join("")}
+      </tbody>
+    </table>
+
+    <h2>個人優惠價 <span class="hint">（取代該生該班的標準費用；0 = 全免）</span></h2>
+    <div id="ovr-list"></div>
+    <div class="bar" style="margin-top:10px">
+      <select id="o-student">${STUDENTS.map((s) =>
+        `<option value="${s.id}">${esc(s.student_no ? s.student_no + " " : "")}${esc(s.full_name)}</option>`).join("")}</select>
+      <select id="o-class">${CLASSES.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select>
+      <input id="o-amt" type="number" min="0" step="100" placeholder="金額">
+      <input id="o-reason" placeholder="原因（手足優惠…）" style="min-width:150px">
+      <button type="button" class="act" id="o-add">新增優惠</button>
+      <span class="msg" id="o-msg"></span>
+    </div>`;
+
+  // 期別 controls
+  view.querySelectorAll(".t-toggle").forEach((b) => b.addEventListener("click", async () => {
+    const tr = b.closest("tr");
+    const t = TERMS.find((x) => x.id === tr.dataset.id);
+    const { error } = await window.sb.from("terms").update({ active: !t.active }).eq("id", t.id);
+    if (error) { window.alert("失敗：" + error.message); return; }
+    await loadBase(); renderFees();
+  }));
+  $("t-add").addEventListener("click", async () => {
+    const name = $("t-name").value.trim(), s = $("t-start").value, e = $("t-end").value;
+    const msg = $("t-msg");
+    if (!name || !s || !e) { msg.className = "msg err"; msg.textContent = "名稱、起、迄都要填。"; return; }
+    const { error } = await window.sb.from("terms").insert({ name, starts_on: s, ends_on: e });
+    if (error) { msg.className = "msg err"; msg.textContent = error.message; return; }
+    await loadBase(); renderFees();
+  });
+
+  // 班級費用: insert-or-update by (class, term) — no upsert (update grant is
+  // amount-only, and PostgREST upsert would try to SET the key columns too).
+  $("fee-term").addEventListener("change", (e) => { selTerm = e.target.value; renderFees(); });
+  view.querySelectorAll(".fee-save").forEach((b) => b.addEventListener("click", async () => {
+    const tr = b.closest("tr");
+    const cid = tr.dataset.cid;
+    const raw = tr.querySelector(".fee-amt").value.trim();
+    const msg = tr.querySelector(".msg");
+    if (raw === "") { msg.className = "msg err"; msg.textContent = "填金額"; return; }
+    const amount = Number(raw);
+    const existing = feeOf(cid);
+    const { error } = existing
+      ? await window.sb.from("class_fees").update({ amount })
+          .eq("class_id", cid).eq("term_id", selTerm)
+      : await window.sb.from("class_fees").insert({ class_id: cid, term_id: selTerm, amount });
+    msg.className = error ? "msg err" : "msg";
+    msg.textContent = error ? error.message : "已儲存";
+    if (!error) { const f = feeOf(cid); if (f) f.amount = amount; else FEES.push({ class_id: cid, term_id: selTerm, amount }); }
+  }));
+
+  // 個人優惠
+  function paintOvr() {
+    const rows = OVR.filter((o) => o.term_id === selTerm);
+    $("ovr-list").innerHTML = rows.length ? `
+      <table>
+        <thead><tr><th>學生</th><th>班級</th><th class="r">優惠價</th><th>原因</th><th></th></tr></thead>
+        <tbody>${rows.map((o) => {
+          const s = STUDENTS.find((x) => x.id === o.student_id);
+          const c = CLASSES.find((x) => x.id === o.class_id);
+          return `
+          <tr data-sid="${o.student_id}" data-cid="${o.class_id}">
+            <td>${esc(s ? s.full_name : "?")}</td><td>${esc(c ? c.name : "?")}</td>
+            <td class="r">${nt(o.amount)}</td><td>${esc(o.reason || "")}</td>
+            <td><button type="button" class="ghost o-del">刪除</button></td>
+          </tr>`; }).join("")}
+        </tbody>
+      </table>` : `<p class="empty">這一期沒有個人優惠。</p>`;
+    $("ovr-list").querySelectorAll(".o-del").forEach((b) => b.addEventListener("click", async () => {
+      const tr = b.closest("tr");
+      const { error } = await window.sb.from("student_fee_overrides").delete()
+        .eq("student_id", tr.dataset.sid).eq("class_id", tr.dataset.cid).eq("term_id", selTerm);
+      if (error) { window.alert("刪除失敗：" + error.message); return; }
+      const i = OVR.findIndex((o) => o.student_id === tr.dataset.sid && o.class_id === tr.dataset.cid && o.term_id === selTerm);
+      if (i >= 0) OVR.splice(i, 1);
+      paintOvr();
+    }));
+  }
+  paintOvr();
+  $("o-add").addEventListener("click", async () => {
+    const student_id = $("o-student").value, class_id = $("o-class").value;
+    const raw = $("o-amt").value.trim(), reason = $("o-reason").value.trim() || null;
+    const msg = $("o-msg");
+    if (raw === "") { msg.className = "msg err"; msg.textContent = "填金額"; return; }
+    const { error } = await window.sb.from("student_fee_overrides")
+      .insert({ student_id, class_id, term_id: selTerm, amount: Number(raw), reason });
+    if (error) { msg.className = "msg err"; msg.textContent = error.message; return; }
+    msg.className = "msg"; msg.textContent = "已新增";
+    OVR.push({ student_id, class_id, term_id: selTerm, amount: Number(raw), reason });
+    paintOvr();
+  });
+}
+
+function render() {
+  renderTabs();
+  if (TAB === "due") renderDue();
+  else if (TAB === "log") renderLog();
+  else renderFees();
+}
+
+(async () => {
+  await window.authGate();
+  if (!window.CURRENT_USER_ROLE) return;
+  $("btn-signout").addEventListener("click", window.signOut);
+  $("who").textContent =
+    `${window.CURRENT_USER.email} · ${ROLE_LABEL[window.CURRENT_USER_ROLE] || window.CURRENT_USER_ROLE}`;
+  try { await loadBase(); } catch (e) {
+    $("view").innerHTML = `<p class="empty">讀取失敗：${esc(e.message || e)}</p>`;
+    return;
+  }
+  render();
+})();
+</script>
+</body>
+</html>
