@@ -5,7 +5,7 @@ Static admin surface for 家偉補習班 — **https://admin.chiaweiedu.com**
 Deployed by **GitHub Pages** from `main` / root. Mirrors how `pattyhsu/backstage`
 serves backstage.dottyhomes.com.
 
-Two tools: the **收據產生器** and the **內容行銷台**.
+Thirteen tools, across three staff tiers — **負責人 / 主任 / 老師** (see [Roles](#roles-who-sees-what)).
 
 > **Why these live here and the 出題台 does not.** This site is the surface Patty
 > can reach from anywhere — a phone, another computer. The teacher web app
@@ -15,22 +15,71 @@ Two tools: the **收據產生器** and the **內容行銷台**.
 
 ## Contents
 
-| File | What it is |
-|---|---|
-| `index.html` | **Launcher** — the menu of tools. Gated. |
-| `receipt.html` | **GENERATED — do not edit by hand.** The 收據產生器, auth-gated. |
-| `content.html` | The 內容行銷台 — **hand-written**, edit it here. Gated. |
-| `roster.html` | The 名冊 (班級 × 學生 × 任教老師) — **hand-written**. Gated. **Handles minors' PII.** |
-| `schedule.html` | The 課表 (頭份 weekly timetable, hardcoded per semester) — **hand-written**. Gated. |
-| `login.html` | Sign-in surface. Deliberately does not load `auth.js`. Honours `?next=`. |
-| `auth.js` | Session gate: requires a Supabase session **and** an owner/admin role. |
-| `sb.js` | Supabase browser client (anon key — public by design, RLS behind it). |
-| `CNAME` | `admin.chiaweiedu.com` — tells Pages the custom domain. |
-| `.nojekyll` | Skip Jekyll processing; serve files as-is. |
+| File | What it is | Who |
+|---|---|---|
+| `index.html` | **Launcher** — cards filter by role (`data-roles`). | all staff |
+| `receipt.html` | **GENERATED — do not edit by hand.** 收據產生器 + 記帳並列印. | 負責人 · 主任 |
+| `tuition.html` | 收費台 — 未繳 / 收費紀錄 / 期別與費用. **hand-written**. | 負責人 · 主任 |
+| `reports.html` | 收費總覽 — the financial roll-up. **hand-written**. | **負責人 only** |
+| `leads.html` | 諮詢名單 (官網 form submissions). **hand-written**. Personal data. | 負責人 · 主任 |
+| `content.html` | The 內容行銷台 — **hand-written**, edit it here. | 負責人 · 主任 |
+| `offerings.html` | 開課資訊台 — rows with `status='open'` are PUBLIC. **hand-written**. | 負責人 · 主任 |
+| `teachers.html` | 老師帳號 — mints credentials via the `teacher-create` fn. **hand-written**. | 負責人 · 主任 |
+| `roster.html` | 名冊 (班級 × 學生 × 任教老師). **hand-written**. **Minors' PII.** | 負責人 · 主任 · 老師 (唯讀, own classes) |
+| `schedule.html` | 課表 (頭份 weekly timetable, hardcoded per semester). **hand-written**. | all staff |
+| `journal.html` | 老師日誌 — one entry per class per day. **hand-written**. | all staff |
+| `rollcall.html` | 點名單 — printable roll-call sheet, writes nothing. **hand-written**. | all staff |
+| `attendance.html` | 出勤紀錄 — punches + monthly hours. **hand-written**. | all staff (self only; 負責人 sees all + 補登/作廢) |
+| `kiosk.html` | 打卡機 — the front-desk tablet. **Does NOT use `auth.js`.** | the kiosk account only |
+| `login.html` | Sign-in surface. Deliberately does not load `auth.js`. Honours `?next=`. | — |
+| `auth.js` | Session gate: session + role ∈ the page's `window.PAGE_ROLES` + `active`. | — |
+| `sb.js` | Supabase browser client (anon key — public by design, RLS behind it). | — |
+| `CNAME` | `admin.chiaweiedu.com` — tells Pages the custom domain. | — |
+| `.nojekyll` | Skip Jekyll processing; serve files as-is. | — |
 
 Note the two provenances: `receipt.html` is **generated** from the `chiawei` repo
-and copied in — never hand-edit it. `content.html` is **hand-written and lives
+and copied in — never hand-edit it. Everything else is **hand-written and lives
 here** — never regenerate over it.
+
+## Roles (who sees what)
+
+Three staff tiers, since 2026-08-12. **A page declares who may enter** in an inline
+script *before* `auth.js`:
+
+```html
+<script>window.PAGE_ROLES = ["owner", "admin", "teacher"];</script>
+<script src="auth.js"></script>
+```
+
+Undeclared → `["owner","admin"]` (fail-closed), and the list is intersected with the
+staff set, so no page can admit a parent/student however it is declared.
+
+- **負責人 (`owner`)** — everything, including 收費總覽 and everyone's 出勤.
+- **主任 (`admin`)** — daily ops incl. recording tuition. **Cannot** open 收費總覽,
+  see others' 出勤, or touch the owner's account. Minted from the `chiawei` repo:
+  `python scripts/create_manager.py <username> --name 王主任` (or `--promote <username>`).
+- **老師 (`teacher`)** — 課表, 名冊 (read-only, own classes), 老師日誌, 點名單, own 出勤.
+
+**The gate is not the boundary — RLS is.** A teacher blocked from a page here may still
+read some of its data via PostgREST where the read tiers allow it (their own classes'
+roster, by design). What the DB actually denies them — tuition, leads, other teachers'
+journals and punches — it denies in policies, proven by pgTAP 19–22 in the `chiawei` repo.
+
+## 打卡機 (`kiosk.html`)
+
+The front-desk tablet, one per 分校. A teacher taps their name, the camera snaps a
+photo, and the punch lands with a **server-set** timestamp — the photo is the identity
+proof, so there is no PIN. Wrong person? 10-second 撤銷 on the confirmation, or the
+owner voids it later and 補登s the right one; punches are never edited or deleted.
+
+Setup, once per tablet: `python scripts/create_kiosk.py toufen` (in the `chiawei`
+repo) → sign in at `login.html` with the printed credentials → open `kiosk.html` →
+allow the camera. The session persists on the device.
+
+The kiosk account is deliberately **unprivileged** (`role='student'` + a `kiosk_devices`
+row): a tablet left in a lobby, or stolen, reads *nothing* — not the roster, not the
+bank. Its whole surface is punch-shaped, and it cannot back-date, punch without a
+photo, or browse the photo bucket.
 
 ## 內容行銷台 (`content.html`)
 
@@ -109,8 +158,10 @@ cd ~/chiawei-admin && git commit -am "rebuild receipt" && git push   # Pages red
 ## What the gate does and does not do
 
 `auth.js` hides the page, checks for a Supabase session, calls `current_app_role()`,
-and bounces anyone who is not `owner`/`admin` — mirroring `requireOwnerAdmin()` in
-chiawei's Next.js app.
+and bounces anyone whose role is not in that page's `window.PAGE_ROLES` (see
+[Roles](#roles-who-sees-what)) — or whose profile has been 停用 (`active = false`,
+checked on every page load now that teachers sign in here, so revoking an account
+takes effect immediately rather than at next sign-in).
 
 **It is a client-side gate on a public static file.** It stops casual and accidental
 access and gives a clean redirect; it is **not** a security boundary, and it never
@@ -158,6 +209,33 @@ Verified from a real signed-in **teacher** session in devtools, bypassing `auth.
 entirely: reads returned 0 rows, `INSERT` raised `42501`, `UPDATE`/`DELETE` affected
 0 rows. If you add another page here that touches student data, re-prove the same —
 do not lean on the gate.
+
+Since 2026-08-12 teachers are admitted to `roster.html` **read-only** — RLS
+(`20260611000009`) already scoped their reads to their own classes and denied their
+writes; the page's RO branch just stops offering saves that would silently no-op.
+
+## Money pages (`receipt.html` · `tuition.html` · `reports.html`)
+
+The ledger is **immutable**: one printed receipt = one row, `unique(branch, receipt_no)`,
+and the only write anyone can make against an existing payment is a **作廢**. There is
+no edit and no delete, for anybody — a mistake is voided (with a reason) and re-issued
+under a fresh 收據號碼, exactly like a paper receipt pad. `total` is computed by a DB
+trigger from the 項目 lines, and who recorded it comes from the session, so neither can
+be forged from a browser.
+
+未繳 = `coalesce(個人優惠, 班費) − allocated un-voided lines`. A 項目 line only counts
+against a fee if it came from a **帶入費用** chip (which tags it with the class + 期);
+hand-typed lines like 教材費 are free-form and affect nothing. That is deliberate — it
+keeps the receipt as flexible as the paper one.
+
+`reports.html` is **negative space for a 主任**: its numbers come from SECURITY DEFINER
+functions that check `is_owner()` and raise, so a 主任 calling them from devtools gets
+an error, not data. (A 主任 *can* read raw payment rows — they must, to run the 收費台 —
+so what is fenced is the roll-up, not the underlying ledger. Stated plainly because it
+is the kind of thing that gets misremembered as stronger than it is.)
+
+Migrations `20260812000005/6` in the `chiawei` repo; pgTAP `20_tuition_rls_test.sql`
+(24 asserts) and `21_tuition_reports_test.sql` (8).
 
 ## 老師帳號 (`teachers.html`) — the one page with a server hop
 
