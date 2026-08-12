@@ -30,7 +30,10 @@
      must not run until authGate() reaches a verdict. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="sb.js"></script>
-<script>window.PAGE_ROLES = ["owner", "admin"];</script>
+<!-- Teachers admitted READ-ONLY since 2026-08-12: RLS (0009) scopes every query
+     to their own classes/students, and RLS denies their writes anyway (silently
+     for UPDATEs) — the RO flag below just makes the UI honest about it. -->
+<script>window.PAGE_ROLES = ["owner", "admin", "teacher"];</script>
 <script src="auth.js"></script>
 <style>
 :root {
@@ -162,7 +165,7 @@ ul.list li.off { opacity: .55; }
 <main>
   <div id="err" class="err" style="display:none"></div>
 
-  <p class="hint" style="margin-top:0">
+  <p class="hint" style="margin-top:0" id="page-hint">
     這裡維護<strong>班級</strong>、<strong>學生</strong>和<strong>誰教哪一班</strong>。老師的登入帳號在
     <a href="teachers.html">老師帳號</a>。
     刪除一律是「停用」，資料會保留（個資法：學生紀錄不做硬刪除）。
@@ -210,6 +213,16 @@ let searchQ = "";   // when set, the 學生 pane shows global search results ins
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// Teachers browse read-only: RLS scopes their reads to their own classes and
+// denies their writes regardless — RO just keeps the UI from offering saves
+// that would silently no-op.
+const RO = () => window.CURRENT_USER_ROLE === "teacher";
+function applyReadOnly(box) {
+  if (!RO()) return;
+  box.querySelectorAll("input, textarea, select").forEach((el) => { el.disabled = true; });
+  box.querySelectorAll(".actions button").forEach((b) => { b.style.display = "none"; });
+}
 
 function fail(e) {
   const box = $("err");
@@ -374,7 +387,7 @@ function renderClassForm(box, c) {
       <div class="fld"><label>年級</label><input id="f-grade" type="number" min="1" max="12" value="${c?.grade ?? selGrade ?? ""}"></div>
       <div class="fld"><label>科目</label><input id="f-subject" value="${esc(c?.subject || "")}" placeholder="數學"></div>
     </div>
-    ${c ? `
+    ${c && !RO() ? `
       <div class="fld">
         <label>任教老師</label>
         ${TEACHERS.length === 0
@@ -389,6 +402,7 @@ function renderClassForm(box, c) {
       ${c ? `<button type="button" class="danger" id="f-toggle">${c.active ? "停用" : "啟用"}</button>` : ""}
       <button type="button" id="f-cancel">取消</button>
     </div>`;
+  applyReadOnly(box);
 
   $("f-save").addEventListener("click", async () => {
     clearErr();
@@ -481,6 +495,7 @@ function renderStudentForm(box, s) {
       <button type="button" id="s-cancel">取消</button>
     </div>
     <div class="fld" id="bind-out" style="margin-top:8px"></div>`;
+  applyReadOnly(box);
 
   $("s-save").addEventListener("click", async () => {
     clearErr();
@@ -581,6 +596,13 @@ async function refresh() { await loadAll(); renderAll(); }
   if (!window.CURRENT_USER_ROLE) return;            // gate already redirected
   $("btn-signout").addEventListener("click", window.signOut);
   $("who").textContent = `${window.CURRENT_USER.email} · ${window.CURRENT_USER_ROLE}`;
+  if (RO()) {
+    $("btn-new-class").style.display = "none";
+    $("btn-new-student").style.display = "none";
+    $("page-hint").innerHTML =
+      "唯讀模式：你看到的是<strong>自己任教班級</strong>的名冊（資料庫依任教關係過濾）。" +
+      "需要修改請找負責人或主任。";
+  }
   $("btn-new-class").addEventListener("click", () => { mode = "new-class"; renderDetail(); });
   $("btn-new-student").addEventListener("click", () => {
     if (!selClass) return;

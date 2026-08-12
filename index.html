@@ -65,14 +65,26 @@ button {
       聯絡後改狀態（待聯絡 → 已聯絡 → 已約檢測 → 結案），含個資、不對外。</div>
   </a>
 
-  <a class="tool" href="roster.html" data-roles="owner admin" hidden>
+  <a class="tool" href="roster.html" data-roles="owner admin teacher" hidden>
     <div class="name">名冊 →</div>
-    <div class="desc">班級、學生、誰教哪一班。出考卷和批改都以班級為單位，所以名冊是它們的來源。</div>
+    <div class="desc">班級、學生、誰教哪一班。出考卷和批改都以班級為單位，所以名冊是它們的來源。
+      老師為唯讀、只看得到自己任教的班。</div>
   </a>
 
   <a class="tool" href="schedule.html" data-roles="owner admin teacher" hidden>
     <div class="name">課表 →</div>
     <div class="desc">頭份每週課表（115學年，8/24 起）：各班時段與授課老師，可直接列印或存成 PDF。</div>
+  </a>
+
+  <a class="tool" href="journal.html" data-roles="owner admin teacher" hidden>
+    <div class="name">老師日誌 →</div>
+    <div class="desc">一班一天一則：今天教到哪、出了什麼作業、班上狀況。
+      老師寫自己的班；負責人和主任看得到全部。</div>
+  </a>
+
+  <a class="tool" href="rollcall.html" data-roles="owner admin teacher" hidden>
+    <div class="name">點名單 →</div>
+    <div class="desc">選班級印出點名表格：學號、姓名、空白日期欄，上課手寫勾到。純列印，不記錄。</div>
   </a>
 
   <a class="tool" href="teachers.html" data-roles="owner admin" hidden>

@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>家偉補習班 · 點名單</title>
+<!-- 點名單 — pick a class, print a roll-call sheet, tick by hand.
+     Hand-written, following schedule.html (print) + journal.html (class picker).
+
+     A PURE PRINT TOOL: reads classes + enrollments + students and writes
+     NOTHING. Digital attendance (per-event 到/缺/假 + LINE notifications) is
+     deliberately NOT this page — that is Phase 2b and needs the 課表→課次
+     groundwork. Patty's call, 2026-08-12.
+
+     ⚠️ Shows student names + 學號 (minors' PII — the printed sheet leaves the
+     building, keep it to names + 學號 only, no contacts). RLS scopes the reads:
+     a teacher gets only the classes in class_teachers and only those students;
+     owner/主任 get all (0009's read tiers, pgTAP 03).
+
+     The date header cells are editable ON SCREEN (type them before printing)
+     or left blank to pencil in later. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sb.js"></script>
+<script>window.PAGE_ROLES = ["owner", "admin", "teacher"];</script>
+<script src="auth.js"></script>
+<style>
+:root {
+  --brand: #2547c7; --orange: #ef5226;
+  --bg: #f6f7fb; --surface: #fff; --ink: #1b1f2a; --muted: #6b7280; --line: #e3e6ee;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px; color: var(--ink); background: var(--bg);
+  font-family: "PingFang TC", "Noto Sans TC", system-ui, -apple-system, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 960px; margin: 0 auto; }
+header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+h1 { font-size: 20px; color: var(--brand); margin: 0; }
+.sub { font-size: 13px; color: var(--muted); margin: 0 0 16px; }
+a.back { font-size: 13px; color: var(--brand); text-decoration: none; margin-left: auto; }
+.pick { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+select { font: inherit; font-size: 14px; border: 1px solid var(--line);
+  border-radius: 7px; padding: 7px 10px; background: #fff; min-width: 220px; }
+button.print { font: inherit; font-size: 14px; cursor: pointer; border: 1px solid var(--brand);
+  border-radius: 7px; padding: 7px 16px; background: var(--brand); color: #fff; font-weight: 700; }
+.hint { font-size: 12px; color: var(--muted); }
+.sheet { background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 18px; overflow-x: auto; }
+.sheet h2 { font-size: 17px; margin: 0 0 2px; }
+.sheet .meta { font-size: 12px; color: var(--muted); margin: 0 0 12px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { border: 1px solid #c9cdd8; padding: 6px 8px; text-align: center; }
+th { background: #f0f2f9; font-weight: 700; }
+td.no { font-variant-numeric: tabular-nums; color: var(--muted); width: 34px; }
+td.sid { font-variant-numeric: tabular-nums; width: 84px; }
+td.nm { text-align: left; min-width: 90px; white-space: nowrap; }
+th.date { min-width: 52px; }
+th.date .cell { min-height: 1.2em; outline: none; }
+th.date .cell:empty::before { content: "　／　"; color: #b6bac7; }
+.empty { color: var(--muted); font-size: 14px; padding: 16px 0; }
+.foot { display: flex; align-items: center; gap: 10px; margin-top: 20px; font-size: 12px; color: var(--muted); }
+.foot button { font: inherit; font-size: 12px; cursor: pointer; border: 1px solid var(--line);
+  border-radius: 7px; padding: 5px 10px; background: #fff; color: var(--ink); margin-left: auto; }
+@media print {
+  @page { size: A4 portrait; margin: 12mm; }
+  body { background: #fff; padding: 0; }
+  header, .pick, .foot, .sub { display: none !important; }
+  .wrap { max-width: none; }
+  .sheet { border: 0; border-radius: 0; padding: 0; overflow: visible; }
+  * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>點名單</h1>
+    <a class="back" href="index.html">← 回後台</a>
+  </header>
+  <p class="sub">選班級、列印、上課勾到。日期欄可以先在畫面上點一下輸入再印，或印空白手寫。
+    這頁只列印，不記錄——印出來的紙含學生姓名，請照名冊的規矩保管。</p>
+
+  <div class="pick">
+    <select id="cls"></select>
+    <button class="print" type="button" onclick="window.print()">列印 / 存 PDF</button>
+    <span class="hint">點日期欄可直接輸入（例：8/26）</span>
+  </div>
+
+  <div class="sheet">
+    <h2 id="title">點名單</h2>
+    <p class="meta" id="meta"></p>
+    <div id="grid"></div>
+  </div>
+
+  <div class="foot">
+    <span id="who"></span>
+    <button type="button" id="btn-signout">登出</button>
+  </div>
+</div>
+<script>
+const ROLE_LABEL = { owner: "負責人", admin: "主任", teacher: "老師" };
+const $ = (id) => document.getElementById(id);
+const DATE_COLS = 10;
+let CLASSES = [];
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+async function renderSheet() {
+  const cls = CLASSES.find(c => c.id === $("cls").value);
+  if (!cls) return;
+  $("grid").innerHTML = `<p class="empty">載入中…</p>`;
+
+  // enrollments → students, active only. RLS scopes both to the caller.
+  const { data, error } = await window.sb.from("enrollments")
+    .select("students!inner(id, full_name, student_no, active)")
+    .eq("class_id", cls.id).eq("active", true).eq("students.active", true);
+  if (error) { $("grid").innerHTML = `<p class="empty">讀取失敗：${esc(error.message)}</p>`; return; }
+
+  const students = (data || []).map(r => r.students)
+    .sort((a, b) => String(a.student_no || "").localeCompare(String(b.student_no || "")) ||
+                    String(a.full_name).localeCompare(String(b.full_name), "zh-Hant"));
+
+  $("title").textContent = `點名單 · ${cls.name}`;
+  $("meta").textContent = `${students.length} 人 · 115學年 · ✓ 到　△ 遲到　✗ 缺席　假 請假`;
+
+  if (!students.length) {
+    $("grid").innerHTML = `<p class="empty">這個班還沒有學生。</p>`;
+    return;
+  }
+  const dateHead = Array.from({ length: DATE_COLS },
+    () => `<th class="date"><div class="cell" contenteditable="true"></div></th>`).join("");
+  $("grid").innerHTML = `
+    <table>
+      <thead><tr><th>#</th><th>學號</th><th>姓名</th>${dateHead}</tr></thead>
+      <tbody>${students.map((s, i) => `
+        <tr>
+          <td class="no">${i + 1}</td>
+          <td class="sid">${esc(s.student_no || "")}</td>
+          <td class="nm">${esc(s.full_name)}</td>
+          ${`<td></td>`.repeat(DATE_COLS)}
+        </tr>`).join("")}
+      </tbody>
+    </table>`;
+}
+
+(async () => {
+  await window.authGate();
+  if (!window.CURRENT_USER_ROLE) return;
+  $("btn-signout").addEventListener("click", window.signOut);
+  $("who").textContent =
+    `${window.CURRENT_USER.email} · ${ROLE_LABEL[window.CURRENT_USER_ROLE] || window.CURRENT_USER_ROLE}`;
+
+  const { data: classes, error } = await window.sb.from("classes")
+    .select("id, name").eq("active", true).order("name");
+  if (error || !(classes || []).length) {
+    $("cls").innerHTML = `<option value="">（沒有班級）</option>`;
+    $("grid").innerHTML = `<p class="empty">沒有可列印的班級。</p>`;
+    return;
+  }
+  CLASSES = classes;
+  $("cls").innerHTML = classes.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+  $("cls").addEventListener("change", renderSheet);
+  renderSheet();
+})();
+</script>
+</body>
+</html>

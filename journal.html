@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>家偉補習班 · 老師日誌</title>
+<!-- 老師日誌 — one entry per class per teaching day (進度 / 作業 / 班級狀況).
+     Hand-written, following leads.html.
+
+     Data model: teacher_journals, unique (class_id, entry_date), migration
+     20260812000004 in chiawei-platform, pgTAP 19. The class picker is ONE query
+     for every role — RLS scopes it: a teacher's `select from classes` returns
+     only the classes in class_teachers; owner/主任 get all. Same for entries.
+
+     Authorship is DB-enforced: teacher_id defaults to auth.uid() and has no
+     column grant, so this page never sends it. A teacher can edit only their
+     own entries (RLS) — the UI mirrors that by going read-only on a co-teacher's
+     entry rather than letting a save silently no-op.
+
+     Load order is load-bearing: auth.js hides <body> at parse time and init()
+     must not run until authGate() reaches a verdict. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sb.js"></script>
+<script>window.PAGE_ROLES = ["owner", "admin", "teacher"];</script>
+<script src="auth.js"></script>
+<style>
+:root {
+  --brand: #2547c7; --orange: #ef5226; --gold: #f8c414;
+  --bg: #f6f7fb; --surface: #fff; --ink: #1b1f2a; --muted: #6b7280; --line: #e3e6ee;
+}
+* { box-sizing: border-box; }
+body { margin: 0; padding: 24px; color: var(--ink); background: var(--bg);
+  font-family: "PingFang TC", "Noto Sans TC", system-ui, -apple-system, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased; }
+.wrap { max-width: 960px; margin: 0 auto; }
+header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 4px; }
+h1 { font-size: 20px; color: var(--brand); margin: 0; }
+.sub { font-size: 13px; color: var(--muted); margin: 0 0 16px; }
+a.back { font-size: 13px; color: var(--brand); text-decoration: none; margin-left: auto; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 16px; margin-bottom: 14px; }
+.pick { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+select, input[type="date"] { font: inherit; font-size: 14px; border: 1px solid var(--line);
+  border-radius: 7px; padding: 7px 10px; background: #fff; color: var(--ink); }
+select { min-width: 200px; }
+.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.f label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+textarea { width: 100%; font: inherit; font-size: 14px; line-height: 1.6; border: 1px solid var(--line);
+  border-radius: 7px; padding: 8px 10px; min-height: 92px; resize: vertical; background: #fff; }
+textarea:focus { outline: 2px solid var(--brand); border-color: var(--brand); }
+textarea[disabled] { background: #f4f5f8; color: var(--muted); }
+.ctrl { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+button.save { font: inherit; font-size: 14px; cursor: pointer; border: 1px solid var(--brand);
+  border-radius: 7px; padding: 8px 16px; background: var(--brand); color: #fff; font-weight: 700; }
+button.save:disabled { opacity: .5; cursor: default; }
+.msg { font-size: 13px; color: var(--muted); }
+.msg.err { color: var(--orange); font-weight: 700; }
+.msg.ok { color: #1e7a44; font-weight: 700; }
+h2 { font-size: 15px; color: var(--ink); margin: 20px 0 8px; }
+.entry { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--gold);
+  border-radius: 10px; padding: 12px 14px; margin-bottom: 8px; cursor: pointer; }
+.entry:hover { border-color: var(--brand); }
+.entry .top { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.entry .d { font-weight: 800; font-size: 14px; font-variant-numeric: tabular-nums; }
+.entry .cls { font-size: 13px; color: var(--brand); font-weight: 700; }
+.entry .by { margin-left: auto; font-size: 12px; color: var(--muted); }
+.entry .body { font-size: 13px; color: #33384c; margin-top: 6px; line-height: 1.6; white-space: pre-wrap; }
+.entry .body b { color: var(--muted); font-weight: 400; }
+.empty { color: var(--muted); font-size: 14px; padding: 12px 0; }
+.foot { display: flex; align-items: center; gap: 10px; margin-top: 20px; font-size: 12px; color: var(--muted); }
+.foot button { font: inherit; font-size: 12px; cursor: pointer; border: 1px solid var(--line);
+  border-radius: 7px; padding: 5px 10px; background: #fff; color: var(--ink); margin-left: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>老師日誌</h1>
+    <a class="back" href="index.html">← 回後台</a>
+  </header>
+  <p class="sub">一班一天一則：今天教到哪、出了什麼作業、班上狀況。
+    同一班同一天再次儲存＝更新同一則，不會重複。</p>
+
+  <div class="card">
+    <div class="pick">
+      <select id="cls"></select>
+      <input type="date" id="day">
+      <span class="msg" id="loadmsg"></span>
+    </div>
+    <div class="fields">
+      <div class="f"><label>進度（今天教了什麼）</label>
+        <textarea id="progress" maxlength="2000" placeholder="例：二次函數圖形與頂點式，課本 P.42–48"></textarea></div>
+      <div class="f"><label>作業</label>
+        <textarea id="homework" maxlength="2000" placeholder="例：講義 B4 第 1–20 題，週五收"></textarea></div>
+      <div class="f"><label>班級狀況</label>
+        <textarea id="notes" maxlength="2000" placeholder="例：小考平均 72，配方法還不穩"></textarea></div>
+    </div>
+    <div class="ctrl">
+      <button class="save" type="button" id="save">儲存日誌</button>
+      <span class="msg" id="msg"></span>
+    </div>
+  </div>
+
+  <h2 id="recent-title">最近 14 天</h2>
+  <div id="recent"></div>
+
+  <div id="review-sec" hidden>
+    <h2>最近 7 天 · 全部班級</h2>
+    <div id="review"></div>
+  </div>
+
+  <div class="foot">
+    <span id="who"></span>
+    <button type="button" id="btn-signout">登出</button>
+  </div>
+</div>
+<script>
+const ROLE_LABEL = { owner: "負責人", admin: "主任", teacher: "老師" };
+const $ = (id) => document.getElementById(id);
+let CLASSES = [];            // [{id, name}]
+let CURRENT = null;          // the loaded entry row for (class, date), or null
+let NAMES = {};              // profile id -> full_name (owner/主任 only)
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+// LOCAL date, never toISOString() — UTC would stamp the wrong day after 8am 台北.
+function localISO(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+function weekday(iso) {
+  return "日一二三四五六"[new Date(iso + "T00:00:00").getDay()];
+}
+function clsName(id) {
+  const c = CLASSES.find(c => c.id === id);
+  return c ? c.name : "";
+}
+function byLabel(teacher_id) {
+  if (teacher_id === window.CURRENT_USER.id) return "我";
+  return NAMES[teacher_id] || "其他老師";
+}
+
+function fillEditor(row) {
+  CURRENT = row;
+  $("progress").value = row ? (row.progress || "") : "";
+  $("homework").value = row ? (row.homework || "") : "";
+  $("notes").value = row ? (row.notes || "") : "";
+  // A teacher may edit only their OWN entry (RLS would silently no-op anyway);
+  // owner/主任 may edit anything.
+  const mine = !row || row.teacher_id === window.CURRENT_USER.id
+    || window.CURRENT_USER_ROLE !== "teacher";
+  ["progress", "homework", "notes"].forEach(id => { $(id).disabled = !mine; });
+  $("save").disabled = !mine;
+  $("loadmsg").textContent = row
+    ? (mine ? "已有這天的日誌，儲存＝更新。" : `這則由${byLabel(row.teacher_id)}填寫，僅能查看。`)
+    : "";
+}
+
+async function loadEntry() {
+  const cls = $("cls").value, day = $("day").value;
+  if (!cls || !day) return;
+  $("loadmsg").textContent = "…";
+  const { data, error } = await window.sb.from("teacher_journals")
+    .select("id, class_id, entry_date, teacher_id, progress, homework, notes")
+    .eq("class_id", cls).eq("entry_date", day).maybeSingle();
+  if (error) { $("loadmsg").textContent = "讀取失敗：" + error.message; return; }
+  fillEditor(data || null);
+  renderRecent();
+}
+
+async function save() {
+  const cls = $("cls").value, day = $("day").value;
+  const progress = $("progress").value.trim() || null;
+  const homework = $("homework").value.trim() || null;
+  const notes = $("notes").value.trim() || null;
+  const msg = $("msg");
+  if (!progress && !homework && !notes) {
+    msg.className = "msg err"; msg.textContent = "至少填一欄再儲存。"; return;
+  }
+  $("save").disabled = true; msg.className = "msg"; msg.textContent = "儲存中…";
+  let error;
+  if (CURRENT) {
+    ({ error } = await window.sb.from("teacher_journals")
+      .update({ progress, homework, notes }).eq("id", CURRENT.id));
+  } else {
+    ({ error } = await window.sb.from("teacher_journals")
+      .insert({ class_id: cls, entry_date: day, progress, homework, notes }));
+    if (error && error.code === "23505") {
+      // Someone (a co-teacher) saved this (class, day) between our load and
+      // save. Re-load so they see it instead of clobbering.
+      await loadEntry();
+      msg.className = "msg err"; msg.textContent = "這天已有別人剛寫好的日誌，已載入。";
+      $("save").disabled = false; return;
+    }
+  }
+  $("save").disabled = false;
+  if (error) { msg.className = "msg err"; msg.textContent = "儲存失敗：" + error.message; return; }
+  msg.className = "msg ok"; msg.textContent = "已儲存";
+  await loadEntry();
+}
+
+function entryHTML(r, withClass) {
+  const parts = [];
+  if (r.progress) parts.push(`<b>進度</b> ${esc(r.progress)}`);
+  if (r.homework) parts.push(`<b>作業</b> ${esc(r.homework)}`);
+  if (r.notes) parts.push(`<b>班級狀況</b> ${esc(r.notes)}`);
+  return `
+    <div class="entry" data-cls="${esc(r.class_id)}" data-day="${esc(r.entry_date)}">
+      <div class="top">
+        <span class="d">${esc(r.entry_date.slice(5).replace("-", "/"))}（${weekday(r.entry_date)}）</span>
+        ${withClass ? `<span class="cls">${esc(clsName(r.class_id))}</span>` : ""}
+        <span class="by">${esc(byLabel(r.teacher_id))}</span>
+      </div>
+      <div class="body">${parts.join("<br>")}</div>
+    </div>`;
+}
+
+function hookEntryClicks(el) {
+  el.querySelectorAll(".entry").forEach(e => e.addEventListener("click", () => {
+    $("cls").value = e.dataset.cls;
+    $("day").value = e.dataset.day;
+    loadEntry();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }));
+}
+
+async function renderRecent() {
+  const cls = $("cls").value;
+  $("recent-title").textContent = `最近 14 天 · ${clsName(cls)}`;
+  const since = new Date(); since.setDate(since.getDate() - 13);
+  const { data, error } = await window.sb.from("teacher_journals")
+    .select("id, class_id, entry_date, teacher_id, progress, homework, notes")
+    .eq("class_id", cls).gte("entry_date", localISO(since))
+    .order("entry_date", { ascending: false });
+  const el = $("recent");
+  if (error) { el.innerHTML = `<p class="empty">讀取失敗：${esc(error.message)}</p>`; return; }
+  el.innerHTML = (data || []).length
+    ? data.map(r => entryHTML(r, false)).join("")
+    : `<p class="empty">這個班最近 14 天還沒有日誌。</p>`;
+  hookEntryClicks(el);
+}
+
+async function renderReview() {
+  // owner/主任 only: everything written in the last 7 days, across classes.
+  const since = new Date(); since.setDate(since.getDate() - 6);
+  const { data, error } = await window.sb.from("teacher_journals")
+    .select("id, class_id, entry_date, teacher_id, progress, homework, notes")
+    .gte("entry_date", localISO(since))
+    .order("entry_date", { ascending: false }).limit(200);
+  const el = $("review");
+  if (error) { el.innerHTML = `<p class="empty">讀取失敗：${esc(error.message)}</p>`; return; }
+  el.innerHTML = (data || []).length
+    ? data.map(r => entryHTML(r, true)).join("")
+    : `<p class="empty">最近 7 天沒有任何日誌。</p>`;
+  hookEntryClicks(el);
+}
+
+(async () => {
+  await window.authGate();
+  if (!window.CURRENT_USER_ROLE) return;
+  const role = window.CURRENT_USER_ROLE;
+  $("btn-signout").addEventListener("click", window.signOut);
+  $("who").textContent = `${window.CURRENT_USER.email} · ${ROLE_LABEL[role] || role}`;
+
+  // One query for every role — RLS scopes a teacher to their own classes.
+  const { data: classes, error } = await window.sb.from("classes")
+    .select("id, name").eq("active", true).order("name");
+  if (error || !(classes || []).length) {
+    $("cls").innerHTML = `<option value="">（沒有可寫日誌的班級）</option>`;
+    $("save").disabled = true;
+    return;
+  }
+  CLASSES = classes;
+  $("cls").innerHTML = classes.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join("");
+  $("day").value = localISO(new Date());
+  $("cls").addEventListener("change", loadEntry);
+  $("day").addEventListener("change", loadEntry);
+  $("save").addEventListener("click", save);
+
+  if (role !== "teacher") {
+    // owner/主任 can resolve authors' names (profiles RLS lets them read all).
+    const { data: profs } = await window.sb.from("profiles").select("id, full_name");
+    (profs || []).forEach(p => { NAMES[p.id] = p.full_name || ""; });
+    $("review-sec").hidden = false;
+    renderReview();
+  }
+  await loadEntry();
+})();
+</script>
+</body>
+</html>
