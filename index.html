@@ -6,9 +6,15 @@
 <meta name="robots" content="noindex, nofollow">
 <title>家偉補習班 · 管理後台</title>
 <!-- The launcher. This used to be a meta-refresh straight into receipt.html,
-     which made the second tool unreachable by typing the bare domain. -->
+     which made the second tool unreachable by typing the bare domain.
+
+     PER-ROLE CARDS (2026-08-12): every tool card carries data-roles, and the
+     boot block hides cards the signed-in role may not use. This is DISPLAY
+     only — the per-page gate is each page's own PAGE_ROLES + auth.js, and the
+     real boundary is RLS in the database (see auth.js's header). -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="sb.js"></script>
+<script>window.PAGE_ROLES = ["owner", "admin", "teacher"];</script>
 <script src="auth.js"></script>
 <style>
 :root {
@@ -34,6 +40,7 @@ a.tool {
 a.tool:hover { border-color: var(--brand); }
 a.tool .name { font-weight: 700; font-size: 16px; color: var(--brand); }
 a.tool .desc { font-size: 13px; color: var(--muted); margin-top: 4px; line-height: 1.6; }
+a.tool[hidden] { display: none; }
 .foot { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
 .foot .who { font-size: 12px; color: var(--muted); flex: 1; }
 button {
@@ -47,40 +54,40 @@ button {
   <h1>家偉補習班 · 管理後台</h1>
   <p class="sub">Admin · admin.chiaweiedu.com</p>
 
-  <a class="tool" href="receipt.html">
+  <a class="tool" href="receipt.html" data-roles="owner admin" hidden>
     <div class="name">收據產生器 →</div>
     <div class="desc">開立學費收據，四個分校共用一個版型；大寫金額自動換算，直接列印或存成 PDF。</div>
   </a>
 
-  <a class="tool" href="leads.html">
+  <a class="tool" href="leads.html" data-roles="owner admin" hidden>
     <div class="name">諮詢名單 →</div>
     <div class="desc">官網「預約免費檢測」表單送出的家長名單：電話、孩子年級、想加強的科目。
       聯絡後改狀態（待聯絡 → 已聯絡 → 已約檢測 → 結案），含個資、不對外。</div>
   </a>
 
-  <a class="tool" href="roster.html">
+  <a class="tool" href="roster.html" data-roles="owner admin" hidden>
     <div class="name">名冊 →</div>
     <div class="desc">班級、學生、誰教哪一班。出考卷和批改都以班級為單位，所以名冊是它們的來源。</div>
   </a>
 
-  <a class="tool" href="schedule.html">
+  <a class="tool" href="schedule.html" data-roles="owner admin teacher" hidden>
     <div class="name">課表 →</div>
     <div class="desc">頭份每週課表（115學年，8/24 起）：各班時段與授課老師，可直接列印或存成 PDF。</div>
   </a>
 
-  <a class="tool" href="teachers.html">
+  <a class="tool" href="teachers.html" data-roles="owner admin" hidden>
     <div class="name">老師帳號 →</div>
     <div class="desc">建立老師登入、指派任教班級、停用離職帳號。密碼由系統產生、只顯示一次；
       帳號一律停用而不刪除，過去的卷與批改紀錄才留得住。</div>
   </a>
 
-  <a class="tool" href="offerings.html">
+  <a class="tool" href="offerings.html" data-roles="owner admin" hidden>
     <div class="name">開課資訊台 →</div>
     <div class="desc">發布官網與家長專區的開課資訊：新班、時段、開課日。
       「開課中」的班會直接公開顯示，下架用「已收班」。</div>
   </a>
 
-  <a class="tool" href="content.html">
+  <a class="tool" href="content.html" data-roles="owner admin" hidden>
     <div class="name">內容行銷台 →</div>
     <div class="desc">FB / IG / LINE 貼文：審核每日自動產生的草稿、下載卡片、複製文案，
       也可以手動建立榜單、活動、見證、躍升卡。</div>
@@ -92,12 +99,22 @@ button {
   </div>
 </div>
 <script>
+const ROLE_LABEL = { owner: "負責人", admin: "主任", teacher: "老師" };
+
 (async () => {
   await window.authGate();
   if (!window.CURRENT_USER_ROLE) return;
+  const role = window.CURRENT_USER_ROLE;
+
+  // Show only the tools this role may use. Cards start hidden so nothing
+  // flashes for a teacher while the gate resolves.
+  document.querySelectorAll("a.tool[data-roles]").forEach((a) => {
+    if (a.dataset.roles.split(/\s+/).includes(role)) a.hidden = false;
+  });
+
   document.getElementById("btn-signout").addEventListener("click", window.signOut);
   document.getElementById("who").textContent =
-    `${window.CURRENT_USER.email} · ${window.CURRENT_USER_ROLE}`;
+    `${window.CURRENT_USER.email} · ${ROLE_LABEL[role] || role}`;
 })();
 </script>
 </body>

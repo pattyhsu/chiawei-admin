@@ -32,6 +32,7 @@
      block must not run until authGate() reaches a verdict. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="sb.js"></script>
+<script>window.PAGE_ROLES = ["owner", "admin"];</script>
 <script src="auth.js"></script>
 <style>
 :root {
@@ -236,7 +237,7 @@ function fail(e) {
 }
 const clearErr = () => ($("err").style.display = "none");
 
-const ROLE_LABEL = { owner: "負責人", admin: "管理員", teacher: "老師" };
+const ROLE_LABEL = { owner: "負責人", admin: "主任", teacher: "老師" };
 
 // ── state ───────────────────────────────────────────────────────────────────
 let STAFF = [], CLASSES = [], ASSIGN = [];

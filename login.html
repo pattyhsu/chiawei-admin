@@ -74,7 +74,7 @@ button:disabled { opacity: 0.6; cursor: default; }
 <body>
 <form class="card" id="f">
   <h1>家偉補習班 · 管理後台</h1>
-  <p class="sub">請以管理者帳號登入 · Owner / Admin sign-in</p>
+  <p class="sub">請以員工帳號登入 · Staff sign-in（負責人 / 主任 / 老師）</p>
   <label>帳號 Username
     <input type="text" id="username" autocomplete="username"
            placeholder="chiawei" autocapitalize="none" spellcheck="false" required>
@@ -95,7 +95,9 @@ const rejection = sessionStorage.getItem("auth_rejection");
 if (rejection === "not_invited") {
   err.textContent = "此帳號尚未開通，請聯絡管理者。";
 } else if (rejection === "forbidden") {
-  err.textContent = "此帳號沒有管理後台權限（僅限 owner / admin）。";
+  err.textContent = "此帳號沒有這個工具的使用權限。";
+} else if (rejection === "deactivated") {
+  err.textContent = "此帳號已停用，請聯絡管理者。";
 }
 sessionStorage.removeItem("auth_rejection");
 
