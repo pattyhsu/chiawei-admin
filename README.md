@@ -269,14 +269,21 @@ its authorization check; anything that RLS can do should stay in the page.
 
 ## DNS
 
-`admin.chiaweiedu.com` is a **CNAME → `pattyhsu.github.io`**, set in **GoDaddy**
-DNS (chiaweiedu.com's nameservers are GoDaddy's `ns55/ns56.domaincontrol.com`).
+`admin.chiaweiedu.com` is a **CNAME → `pattyhsu.github.io`**, and this page is
+served **straight from GitHub Pages on GitHub's own cert** — the record is
+deliberately **DNS-only (grey cloud)**, so nothing about the admin tools depends
+on the proxy.
 
-Unlike dottyhomes.com, this domain is **not** on Cloudflare. Dotty is on
-Cloudflare only because `photos.dottyhomes.com` runs through a Cloudflare Tunnel,
-which requires Cloudflare to host the DNS; the other Dotty subdomains just ride
-along. Nothing here needs that, and chiaweiedu.com carries the school's Google
-Workspace MX records — so moving nameservers is a real outage risk for zero gain.
+**DNS moved to Cloudflare on 2026-08-13** (registrar is Namecheap; nameservers
+`chuck`/`jade.ns.cloudflare.com`). This reverses what this file used to say —
+the old reasoning was "moving nameservers is a real outage risk for zero gain",
+and the gain stopped being zero: **GitHub Pages could not issue a TLS cert for
+the apex `chiaweiedu.com` at all** (16h stuck, Certificate Transparency shows
+Let's Encrypt issued nothing; known GitHub backend failure), so a parent typing
+the bare domain hit a browser security warning. Cloudflare's Universal SSL now
+covers apex + www. Full write-up + standing rules: **`chiawei-www/README.md`**.
 
-> Pages checks DNS **when the custom domain is set** and does not retry. If the
-> cert ever goes null: remove `CNAME`, push, re-add, push.
+> Two rules that bit us and are easy to repeat:
+> **Never remove/re-add a GitHub custom domain to "nudge" cert provisioning** —
+> it resets GitHub's internal timer (the old advice in this file, now retired).
+> **Never proxy the MX records** — that is the school's Google Workspace email.
