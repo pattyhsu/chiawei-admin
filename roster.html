@@ -491,9 +491,10 @@ function renderStudentForm(box, s) {
     <div class="actions">
       <button type="button" class="primary" id="s-save">${s ? "儲存" : "建立學生"}</button>
       ${s ? `<button type="button" class="danger" id="s-toggle">${s.active ? "停用" : "啟用"}</button>` : ""}
+      ${s ? `<button type="button" id="s-bindcode">產生家長綁定碼</button>` : ""}
       <button type="button" id="s-cancel">取消</button>
     </div>
-`;
+    <div class="fld" id="bind-out" style="margin-top:8px"></div>`;
   applyReadOnly(box);
 
   $("s-save").addEventListener("click", async () => {
@@ -534,6 +535,25 @@ function renderStudentForm(box, s) {
       } catch (e) { fail(e); }
     });
 
+    // 家長綁定碼 — a row in parent_link_codes (migration 20260806000003).
+    // 14 天有效、父母各一次 (max_uses 2)；家長在官網「家長專區」以 LINE 登入後輸入,
+    // parent_bind() 才建立 parent_student 連結（同意紀錄先寫，同一交易）。
+    // 32-char alphabet (no 0/O/1/I) divides 256 evenly → no modulo bias.
+    $("s-bindcode").addEventListener("click", async () => {
+      clearErr();
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      const buf = new Uint8Array(8);
+      crypto.getRandomValues(buf);
+      const code = [...buf].map((b) => chars[b % chars.length]).join("");
+      try {
+        const { error } = await window.sb.from("parent_link_codes")
+          .insert({ code, student_id: s.id });
+        if (error) throw error;
+        $("bind-out").innerHTML =
+          `家長綁定碼：<b style="font-size:18px;letter-spacing:.2em">${code}</b>` +
+          `<span class="hint">（14 天內有效，父母各可使用一次）抄給家長 → 官網「家長專區」→ LINE 登入 → 輸入此碼。</span>`;
+      } catch (e) { fail(e); }
+    });
   }
   $("s-cancel").addEventListener("click", () => { selStudent = null; mode = "class"; renderAll(); });
 }
