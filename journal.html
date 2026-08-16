@@ -46,6 +46,9 @@ select, input[type="date"] { font: inherit; font-size: 14px; border: 1px solid v
 select { min-width: 200px; }
 .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
 .f label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.noticeUntil { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 13px; color: var(--muted); }
+.noticeUntil .hint { font-size: 12px; }
+.toParent { background: #EEF1FC; color: #2547C7; border-radius: 4px; padding: 0 5px; }
 textarea { width: 100%; font: inherit; font-size: 14px; line-height: 1.6; border: 1px solid var(--line);
   border-radius: 7px; padding: 8px 10px; min-height: 92px; resize: vertical; background: #fff; }
 textarea:focus { outline: 2px solid var(--brand); border-color: var(--brand); }
@@ -93,8 +96,12 @@ h2 { font-size: 15px; color: var(--ink); margin: 20px 0 8px; }
         <textarea id="progress" maxlength="2000" placeholder="例：二次函數圖形與頂點式，課本 P.42–48"></textarea></div>
       <div class="f"><label>作業</label>
         <textarea id="homework" maxlength="2000" placeholder="例：講義 B4 第 1–20 題，週五收"></textarea></div>
-      <div class="f"><label>班級狀況</label>
+      <div class="f"><label>班級狀況（內部，家長看不到）</label>
         <textarea id="notes" maxlength="2000" placeholder="例：小考平均 72，配方法還不穩"></textarea></div>
+      <div class="f"><label>給家長的提醒（家長看得到）</label>
+        <textarea id="notice" maxlength="500" placeholder="例：本週六 8/23 加課 09:00–12:00，請準時"></textarea>
+        <div class="noticeUntil">顯示到 <input type="date" id="notice_until">
+          <span class="hint">留空＝從日誌日期起顯示 7 天</span></div></div>
     </div>
     <div class="ctrl">
       <button class="save" type="button" id="save">儲存日誌</button>
@@ -147,11 +154,13 @@ function fillEditor(row) {
   $("progress").value = row ? (row.progress || "") : "";
   $("homework").value = row ? (row.homework || "") : "";
   $("notes").value = row ? (row.notes || "") : "";
+  $("notice").value = row ? (row.notice || "") : "";
+  $("notice_until").value = row ? (row.notice_until || "") : "";
   // A teacher may edit only their OWN entry (RLS would silently no-op anyway);
   // owner/主任 may edit anything.
   const mine = !row || row.teacher_id === window.CURRENT_USER.id
     || window.CURRENT_USER_ROLE !== "teacher";
-  ["progress", "homework", "notes"].forEach(id => { $(id).disabled = !mine; });
+  ["progress", "homework", "notes", "notice", "notice_until"].forEach(id => { $(id).disabled = !mine; });
   $("save").disabled = !mine;
   $("loadmsg").textContent = row
     ? (mine ? "已有這天的日誌，儲存＝更新。" : `這則由${byLabel(row.teacher_id)}填寫，僅能查看。`)
@@ -163,7 +172,7 @@ async function loadEntry() {
   if (!cls || !day) return;
   $("loadmsg").textContent = "…";
   const { data, error } = await window.sb.from("teacher_journals")
-    .select("id, class_id, entry_date, teacher_id, progress, homework, notes")
+    .select("id, class_id, entry_date, teacher_id, progress, homework, notes, notice, notice_until")
     .eq("class_id", cls).eq("entry_date", day).maybeSingle();
   if (error) { $("loadmsg").textContent = "讀取失敗：" + error.message; return; }
   fillEditor(data || null);
@@ -175,18 +184,21 @@ async function save() {
   const progress = $("progress").value.trim() || null;
   const homework = $("homework").value.trim() || null;
   const notes = $("notes").value.trim() || null;
+  const notice = $("notice").value.trim() || null;
+  // an expiry with nothing to expire is refused by a CHECK; drop it client-side
+  const notice_until = notice ? ($("notice_until").value || null) : null;
   const msg = $("msg");
-  if (!progress && !homework && !notes) {
+  if (!progress && !homework && !notes && !notice) {
     msg.className = "msg err"; msg.textContent = "至少填一欄再儲存。"; return;
   }
   $("save").disabled = true; msg.className = "msg"; msg.textContent = "儲存中…";
   let error;
   if (CURRENT) {
     ({ error } = await window.sb.from("teacher_journals")
-      .update({ progress, homework, notes }).eq("id", CURRENT.id));
+      .update({ progress, homework, notes, notice, notice_until }).eq("id", CURRENT.id));
   } else {
     ({ error } = await window.sb.from("teacher_journals")
-      .insert({ class_id: cls, entry_date: day, progress, homework, notes }));
+      .insert({ class_id: cls, entry_date: day, progress, homework, notes, notice, notice_until }));
     if (error && error.code === "23505") {
       // Someone (a co-teacher) saved this (class, day) between our load and
       // save. Re-load so they see it instead of clobbering.
@@ -206,6 +218,7 @@ function entryHTML(r, withClass) {
   if (r.progress) parts.push(`<b>進度</b> ${esc(r.progress)}`);
   if (r.homework) parts.push(`<b>作業</b> ${esc(r.homework)}`);
   if (r.notes) parts.push(`<b>班級狀況</b> ${esc(r.notes)}`);
+  if (r.notice) parts.push(`<b class="toParent">給家長</b> ${esc(r.notice)}`);
   return `
     <div class="entry" data-cls="${esc(r.class_id)}" data-day="${esc(r.entry_date)}">
       <div class="top">
@@ -231,7 +244,7 @@ async function renderRecent() {
   $("recent-title").textContent = `最近 14 天 · ${clsName(cls)}`;
   const since = new Date(); since.setDate(since.getDate() - 13);
   const { data, error } = await window.sb.from("teacher_journals")
-    .select("id, class_id, entry_date, teacher_id, progress, homework, notes")
+    .select("id, class_id, entry_date, teacher_id, progress, homework, notes, notice, notice_until")
     .eq("class_id", cls).gte("entry_date", localISO(since))
     .order("entry_date", { ascending: false });
   const el = $("recent");
@@ -246,7 +259,7 @@ async function renderReview() {
   // owner/主任 only: everything written in the last 7 days, across classes.
   const since = new Date(); since.setDate(since.getDate() - 6);
   const { data, error } = await window.sb.from("teacher_journals")
-    .select("id, class_id, entry_date, teacher_id, progress, homework, notes")
+    .select("id, class_id, entry_date, teacher_id, progress, homework, notes, notice, notice_until")
     .gte("entry_date", localISO(since))
     .order("entry_date", { ascending: false }).limit(200);
   const el = $("review");
