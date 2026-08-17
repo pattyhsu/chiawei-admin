@@ -11,24 +11,25 @@
      This is the read view that pulls them together; 編輯 jumps to 名冊, so there
      is still exactly ONE place where student data is written.
 
+     LAYOUT: scanned, not read. Identity strip → three KPI tiles (未繳 / 餐費餘額 /
+     覆蓋度) → detail in columns. A manager opening a student wants "does she owe
+     money, is her meal balance low, how is she doing" answered before they read
+     anything, so those three are numbers at the top, colour-coded by state.
+
      🔑 ROLES ARE ENFORCED BY RLS, NOT BY THIS PAGE — with one exception.
      A teacher's JWT simply returns no rows for tuition_outstanding_v, meal_ledger
      or student_notes (their policies are is_owner_admin()), so those sections
      come back empty without this page deciding anything. The EXCEPTION is
      CONTACTS: students_select allows teaches_student(), so a teacher CAN read
-     父母電話/LINE. Patty's call (2026-08-18) is that they should not see them —
-     contacting families is front-desk work and this is minors' PII, the same
-     reason the 家長報告 PDF omits guardian contacts. That single hide is done
-     here in code, and is therefore the one thing a UI bug could expose. It is
-     marked at the point of use.
+     父母電話/LINE (verified with a real JWT). Patty's call (2026-08-18) is that
+     they should not see them — contacting families is front-desk work and this is
+     minors' PII, the same reason the 家長報告 PDF omits guardian contacts. That
+     single hide is done here in code, and is therefore the one thing a UI bug
+     could expose. It is marked at the point of use.
 
-     Learning data (mastery / 覆蓋度 / 成績) is scoped by RLS to the teacher's own
-     students, so a teacher opening a student they do not teach gets an empty page
-     rather than an error — which is the correct, quiet failure.
-
-     ⚠️ Most 學習 sections will read empty until exams are actually graded:
-     readiness_snapshots is empty and archetype mastery exists for a handful of
-     students. The empty states say "not yet", never zero. -->
+     ⚠️ Most 學習 tiles read empty until exams are graded: readiness_snapshots is
+     empty and archetype mastery exists for a handful of students. Empty states
+     say "not yet" and render "—", never 0 — a zero here would be a false claim. -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="sb.js"></script>
 <script>window.PAGE_ROLES = ["owner", "admin", "teacher"];</script>
@@ -39,117 +40,140 @@
   --bg: #f6f7fb; --surface: #fff; --ink: #1b1f2a; --muted: #6b7280; --line: #e3e6ee;
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink); line-height: 1.6;
+body { margin: 0; background: var(--bg); color: var(--ink); line-height: 1.55;
   font-family: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif; }
-.wrap { max-width: 1040px; margin: 0 auto; padding: 20px 16px 64px; }
-h1 { font-size: 20px; margin: 0 0 4px; }
-.sub { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
-.sub a { color: var(--brand); }
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
-  padding: 16px; margin-bottom: 14px; }
-h2 { font-size: 15px; margin: 0 0 12px; padding-left: 8px; border-left: 3px solid var(--brand);
-  display: flex; align-items: baseline; gap: 10px; }
-h2 .side { margin-left: auto; font-size: 12px; font-weight: 400; }
-h2 .side a { color: var(--brand); }
-.bar { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 14px; }
-.fl { display: flex; flex-direction: column; gap: 3px; }
-.fl label { font-size: 12px; color: var(--muted); }
-input, select, textarea { font: inherit; padding: 7px 9px; border: 1px solid var(--line);
-  border-radius: 8px; background: #fff; color: var(--ink); }
-input:focus, select:focus, textarea:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
-button { font: inherit; font-weight: 700; border: 0; border-radius: 8px; padding: 8px 16px;
-  background: var(--brand); color: #fff; cursor: pointer; }
-button.danger { background: #fff; border: 2px solid var(--orange); color: var(--orange);
-  padding: 2px 10px; font-size: 12px; }
+.wrap { max-width: 1180px; margin: 0 auto; padding: 16px 16px 56px; }
+.top { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+h1 { font-size: 18px; margin: 0; }
+.top .msg { margin-left: auto; }
+a { color: var(--brand); }
 .msg { font-size: 13px; color: var(--muted); }
 .msg.err { color: var(--orange); font-weight: 700; }
-.empty { color: var(--muted); font-size: 13px; }
+.empty { color: var(--muted); font-size: 13px; margin: 0; }
+select, input, textarea { font: inherit; padding: 6px 9px; border: 1px solid var(--line);
+  border-radius: 8px; background: #fff; color: var(--ink); }
+select:focus, textarea:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
+button { font: inherit; font-weight: 700; border: 0; border-radius: 8px; padding: 7px 15px;
+  background: var(--brand); color: #fff; cursor: pointer; }
+button.danger { background: transparent; border: 0; color: var(--muted);
+  padding: 0 4px; font-size: 12px; font-weight: 400; }
+button.danger:hover { color: var(--orange); text-decoration: underline; }
 
-.kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 18px; }
-.kv div { font-size: 14px; }
-.kv .k { font-size: 12px; color: var(--muted); display: block; }
-.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-.chip { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 2px 10px;
+/* ── identity strip: one band, not a card of labelled fields ─────────────── */
+.hdr { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 16px; margin-bottom: 12px; display: flex; align-items: center;
+  gap: 8px 18px; flex-wrap: wrap; }
+.hdr .nm { font-size: 20px; font-weight: 800; }
+.hdr .no { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 14px; }
+.hdr .meta { font-size: 13px; color: var(--muted); }
+.hdr .meta b { color: var(--ink); font-weight: 700; }
+.hdr .edit { margin-left: auto; font-size: 13px; }
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 1px 9px;
   background: #eef1fc; color: var(--brand); }
 .chip.off { background: #f1f3f8; color: var(--muted); }
+.chip.warn { background: #fef6da; color: #8a5a00; }
 
-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 700;
-  padding: 0 8px 6px; border-bottom: 1px solid var(--line); }
-td { padding: 7px 8px; border-bottom: 1px solid #f1f3f8; }
+/* ── KPI row: the three questions you open this page to answer ───────────── */
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px; margin-bottom: 12px; }
+.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 14px; border-left: 3px solid var(--line); }
+.kpi .lab { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: baseline; }
+.kpi .lab a { margin-left: auto; font-size: 11px; }
+.kpi .v { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums;
+  line-height: 1.25; }
+.kpi .v.none { color: var(--muted); font-weight: 400; font-size: 20px; }
+.kpi .sub { font-size: 12px; color: var(--muted); }
+.kpi.due { border-left-color: var(--orange); } .kpi.due .v { color: var(--orange); }
+.kpi.good { border-left-color: var(--ok); } .kpi.good .v { color: var(--ok); }
+.kpi.info { border-left-color: var(--brand); } .kpi.info .v { color: var(--brand); }
+
+/* ── detail columns ─────────────────────────────────────────────────────── */
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+@media (max-width: 860px) { .cols { grid-template-columns: 1fr; } }
+.col { display: flex; flex-direction: column; gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 13px 15px; }
+h2 { font-size: 14px; margin: 0 0 9px; display: flex; align-items: baseline; gap: 8px; }
+h2 .side { margin-left: auto; font-size: 12px; font-weight: 400; }
+
+.kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 14px; }
+.kv div { font-size: 14px; }
+.kv .k { font-size: 11px; color: var(--muted); display: block; }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-size: 11px; color: var(--muted); font-weight: 700;
+  padding: 0 6px 5px; border-bottom: 1px solid var(--line); }
+td { padding: 5px 6px; border-bottom: 1px solid #f4f5f9; }
+tr:last-child td { border-bottom: 0; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .due { color: var(--orange); font-weight: 700; }
-.tot { display: flex; justify-content: space-between; margin-top: 10px; padding-top: 10px;
-  border-top: 2px solid var(--line); font-weight: 800; font-variant-numeric: tabular-nums; }
-.tot .v { color: var(--orange); }
-.tot .v.clear { color: var(--ok); }
-.warnbox { margin-top: 10px; font-size: 13px; font-weight: 700; color: #8a5a00;
-  background: #fef6da; border: 1px solid #f0dfa8; border-radius: 8px; padding: 8px 11px; }
+.warnbox { margin-top: 8px; font-size: 12px; font-weight: 700; color: #8a5a00;
+  background: #fef6da; border: 1px solid #f0dfa8; border-radius: 8px; padding: 6px 9px; }
 
-.bal { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.bal.low { color: var(--orange); }
-.bal.neg { color: var(--orange); }
+.mrow { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.mstat { border: 1px solid var(--line); border-radius: 9px; padding: 5px 12px; text-align: center;
+  min-width: 62px; }
+.mstat b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
+.mstat span { font-size: 11px; color: var(--muted); }
 
-.mrow { display: flex; gap: 8px; flex-wrap: wrap; }
-.mstat { border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; text-align: center; }
-.mstat b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
-.mstat span { font-size: 12px; color: var(--muted); }
-
-.note { border-bottom: 1px solid #f1f3f8; padding: 8px 0; display: flex; gap: 10px; }
-.note .when { font-size: 12px; color: var(--muted); flex: none; width: 92px;
+.note { border-top: 1px solid #f4f5f9; padding: 6px 0; display: flex; gap: 9px;
+  align-items: baseline; }
+.note:first-of-type { border-top: 0; }
+.note .when { font-size: 11px; color: var(--muted); flex: none; width: 74px;
   font-variant-numeric: tabular-nums; }
-.note .body { flex: 1; font-size: 14px; white-space: pre-wrap; }
+.note .body { flex: 1; font-size: 13px; white-space: pre-wrap; }
+.noteform { display: flex; gap: 7px; align-items: flex-start; margin-bottom: 10px; }
+.noteform textarea { flex: 1; resize: vertical; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>學生總覽</h1>
-  <p class="sub"><a href="index.html">← 回後台</a>　<a href="roster.html">名冊</a>
-    　<span id="who"></span> <a href="#" id="btn-signout">登出</a></p>
-
-  <div class="bar">
-    <div class="fl"><label>選擇學生</label>
-      <select id="pick" style="min-width:260px"></select></div>
+  <div class="top">
+    <h1>學生總覽</h1>
+    <select id="pick" style="min-width:230px"></select>
     <span class="msg" id="pickmsg"></span>
+    <span class="msg"><a href="index.html">← 回後台</a>　<a href="roster.html">名冊</a>
+      　<span id="who"></span> <a href="#" id="btn-signout">登出</a></span>
   </div>
 
   <div id="body" hidden>
-    <div class="card">
-      <h2>基本資料 <span class="side" id="editLink"></span></h2>
-      <div class="kv" id="basic"></div>
-      <div class="chips" id="classes"></div>
-    </div>
+    <div class="hdr" id="hdr"></div>
+    <div class="kpis" id="kpis"></div>
 
-    <div class="card" id="c-contact" hidden>
-      <h2>聯絡方式</h2>
-      <div class="kv" id="contact"></div>
-    </div>
-
-    <div class="card" id="c-tuition" hidden>
-      <h2>學費 <span class="side"><a href="tuition.html">收費台 →</a></span></h2>
-      <div id="tuition"></div>
-    </div>
-
-    <div class="card" id="c-meal" hidden>
-      <h2>餐費 <span class="side"><a href="meals.html">餐費台 →</a></span></h2>
-      <div id="meal"></div>
-    </div>
-
-    <div class="card">
-      <h2>學習進度</h2>
-      <div id="learn"></div>
-    </div>
-
-    <div class="card" id="c-notes" hidden>
-      <h2>備註</h2>
-      <div class="bar" style="margin-bottom:10px">
-        <div class="fl" style="flex:1;min-width:260px"><label>新增一則（寫下後不可修改，只能刪除）</label>
-          <textarea id="noteBody" rows="2" maxlength="2000"
-            placeholder="例：8/12 媽媽來電詢問輔導班"></textarea></div>
-        <button type="button" id="noteAdd">新增</button>
-        <span class="msg" id="notemsg"></span>
+    <div class="cols">
+      <div class="col">
+        <div class="card" id="c-learn">
+          <h2>學習進度 <span class="side"><span class="msg">詳細分析在出題台</span></span></h2>
+          <div id="learn"></div>
+        </div>
+        <div class="card" id="c-tuition" hidden>
+          <h2>學費明細 <span class="side"><a href="tuition.html">收費台 →</a></span></h2>
+          <div id="tuition"></div>
+        </div>
       </div>
-      <div id="notes"></div>
+
+      <div class="col">
+        <div class="card" id="c-contact" hidden>
+          <h2>聯絡方式</h2>
+          <div class="kv" id="contact"></div>
+        </div>
+        <div class="card" id="c-meal" hidden>
+          <h2>餐費明細 <span class="side"><a href="meals.html">餐費台 →</a></span></h2>
+          <div id="meal"></div>
+        </div>
+        <div class="card" id="c-notes" hidden>
+          <h2>備註 <span class="side"><span class="msg">寫下後不可修改</span></span></h2>
+          <div class="noteform">
+            <textarea id="noteBody" rows="2" maxlength="2000"
+              placeholder="例：8/12 媽媽來電詢問輔導班"></textarea>
+            <button type="button" id="noteAdd">新增</button>
+          </div>
+          <span class="msg" id="notemsg"></span>
+          <div id="notes"></div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -165,8 +189,23 @@ const GRADE_LABEL = (g) =>
   : g >= 10 && g <= 12 ? "高" + "一二三"[g - 10]
   : (g == null ? "—" : `${g} 年級`);
 
-let ROLE = null;
-let SID = null;
+let ROLE = null, SID = null;
+// The three KPI tiles are filled by three independent async loads, so each one
+// writes its own slot and the row is re-rendered from the collected state —
+// otherwise whichever query returned last would blow away the others.
+let KPI = {};
+
+function kpi(key, o) { KPI[key] = o; renderKpis(); }
+function renderKpis() {
+  const order = ["tuition", "meal", "readiness"];
+  $("kpis").innerHTML = order.filter((k) => KPI[k]).map((k) => {
+    const o = KPI[k];
+    return `<div class="kpi ${o.tone || ""}"><div class="lab">${esc(o.lab)}` +
+      (o.link ? `<a href="${o.link}">${esc(o.linkText || "→")}</a>` : "") + "</div>" +
+      `<div class="v${o.none ? " none" : ""}">${o.v}</div>` +
+      (o.sub ? `<div class="sub">${esc(o.sub)}</div>` : "") + "</div>";
+  }).join("");
+}
 
 (async () => {
   await window.authGate();
@@ -183,21 +222,24 @@ let SID = null;
   if (error) { $("pickmsg").className = "msg err"; $("pickmsg").textContent = error.message; return; }
   if (!st.length) { $("pickmsg").textContent = "沒有可檢視的學生。"; return; }
 
-  $("pick").innerHTML = '<option value="">請選擇…</option>' + st.map((s) =>
+  $("pick").innerHTML = '<option value="">選擇學生…</option>' + st.map((s) =>
     `<option value="${s.id}">${esc(s.student_no)}　${esc(s.full_name)}</option>`).join("");
   $("pick").onchange = () => load($("pick").value);
   $("noteAdd").onclick = addNote;
 
-  // deep-linkable from 名冊: student.html?id=…
   const qs = new URLSearchParams(location.search).get("id");
   if (qs && st.some((s) => s.id === qs)) { $("pick").value = qs; load(qs); }
 })();
 
 async function load(id) {
   SID = id || null;
+  KPI = {};
+  $("kpis").innerHTML = "";
   $("body").hidden = !SID;
   if (!SID) return;
-  history.replaceState(null, "", `student.html?id=${SID}`);
+  // Cosmetic deep-link update only — never let it abort the data load. (It
+  // throws outright under file://, which is how this was noticed.)
+  try { history.replaceState(null, "", `student.html?id=${SID}`); } catch (e) { /* ignore */ }
   await Promise.all([loadBasic(), loadTuition(), loadMeal(), loadLearn(), loadNotes()]);
 }
 
@@ -208,41 +250,42 @@ async function loadBasic() {
     .eq("id", SID).single();
   if (!s) return;
 
-  $("editLink").innerHTML = (ROLE === "owner" || ROLE === "admin")
-    ? `<a href="roster.html">在名冊編輯 →</a>` : "";
-  $("basic").innerHTML = [
-    ["姓名", s.full_name], ["學號", s.student_no], ["年級", GRADE_LABEL(s.grade)],
-    ["就讀學校", s.school || "—"], ["狀態", s.active ? "在班" : "已停用"],
-    ["標註", s.note || "—"],
-  ].map(([k, v]) => `<div><span class="k">${esc(k)}</span>${esc(v)}</div>`).join("");
-
   const { data: enr } = await window.sb.from("enrollments")
     .select("active, classes(name)").eq("student_id", SID);
-  $("classes").innerHTML = (enr || []).map((e) =>
+  const chips = (enr || []).map((e) =>
     `<span class="chip${e.active ? "" : " off"}">${esc(e.classes ? e.classes.name : "")}` +
-    `${e.active ? "" : "（已停）"}</span>`).join("") || '<span class="empty">未加入任何班級。</span>';
+    `${e.active ? "" : "（已停）"}</span>`).join("");
+
+  $("hdr").innerHTML =
+    `<span class="nm">${esc(s.full_name)}</span>` +
+    `<span class="no">${esc(s.student_no)}</span>` +
+    `<span class="meta"><b>${esc(GRADE_LABEL(s.grade))}</b>` +
+    (s.school ? `　${esc(s.school)}` : "") +
+    (s.note ? `　${esc(s.note)}` : "") + "</span>" +
+    (s.active ? "" : '<span class="chip warn">已停用</span>') +
+    `<span class="chips">${chips || '<span class="msg">未加入任何班級</span>'}</span>` +
+    ((ROLE === "owner" || ROLE === "admin")
+      ? `<span class="edit"><a href="roster.html">在名冊編輯 →</a></span>` : "");
 
   // 🔑 THE ONE POLICY THIS PAGE ENFORCES IN CODE. RLS would happily hand a
-  // teacher these columns for their own students; Patty's call is that it should
-  // not. Everything else on this page is fenced by the database.
+  // teacher these columns for their own students (verified with a real JWT);
+  // Patty's call is that it should not. Everything else here is fenced by the DB.
   const showContacts = ROLE === "owner" || ROLE === "admin";
   $("c-contact").hidden = !showContacts;
   if (showContacts) {
-    $("contact").innerHTML = [
+    const rows = [
       ["父親", s.father_name], ["父親電話", s.father_phone], ["父親 LINE", s.father_line],
       ["母親", s.mother_name], ["母親電話", s.mother_phone], ["母親 LINE", s.mother_line],
       ["家裡電話", s.home_phone], ["其他聯絡人", s.other_contact],
-    ].filter(([, v]) => v).map(([k, v]) =>
+    ].filter(([, v]) => v);
+    $("contact").innerHTML = rows.map(([k, v]) =>
       `<div><span class="k">${esc(k)}</span>${esc(v)}</div>`).join("")
-      || '<span class="empty">沒有填寫聯絡方式。</span>';
+      || '<p class="empty">沒有填寫聯絡方式。</p>';
   }
 }
 
 async function loadTuition() {
-  // A teacher gets zero rows here from RLS alone; hiding the heading too just
-  // avoids showing them an empty box they can never fill.
   if (ROLE === "teacher") { $("c-tuition").hidden = true; return; }
-  $("c-tuition").hidden = false;
 
   const { data: rows } = await window.sb.from("tuition_outstanding_v")
     .select("class_name, term_name, expected, paid, outstanding").eq("student_id", SID);
@@ -250,46 +293,62 @@ async function loadTuition() {
     .select("class_id").eq("student_id", SID).eq("active", true);
 
   if (!rows || !rows.length) {
-    $("tuition").innerHTML = '<p class="empty">本期費用尚未公告（收費台尚未設定班費）。</p>';
+    // No priced class at all → "—", never NT$0, which would read as "paid up".
+    kpi("tuition", { lab: "本期未繳", v: "—", none: true, sub: "尚未設定班費",
+                     link: "tuition.html", linkText: "收費台" });
+    $("c-tuition").hidden = true;
     return;
   }
+  $("c-tuition").hidden = false;
   const total = rows.reduce((a, r) => a + Number(r.outstanding || 0), 0);
+  const partial = (enr || []).length > rows.length;
+  kpi("tuition", {
+    lab: "本期未繳", v: total <= 0 ? "已繳清" : money(total),
+    tone: total <= 0 ? "good" : "due",
+    sub: partial ? "⚠ 有班別尚未設定費用" : (rows[0].term_name || ""),
+    link: "tuition.html", linkText: "收費台",
+  });
+
   let html = '<table><thead><tr><th>班級</th><th class="num">應繳</th>' +
     '<th class="num">已繳</th><th class="num">未繳</th></tr></thead><tbody>' +
     rows.map((r) => `<tr><td>${esc(r.class_name)}</td><td class="num">${money(r.expected)}</td>` +
       `<td class="num">${money(r.paid)}</td>` +
       `<td class="num${Number(r.outstanding) > 0 ? " due" : ""}">${money(r.outstanding)}</td></tr>`)
       .join("") + "</tbody></table>";
-  html += `<div class="tot"><span>${esc(rows[0].term_name || "")} 未繳合計</span>` +
-    `<span class="v${total <= 0 ? " clear" : ""}">${total <= 0 ? "已繳清" : money(total)}</span></div>`;
   // Same trap as the parent portal: the view INNER JOINs class_fees, so a class
   // with no fee set vanishes and the total silently understates the bill.
-  if ((enr || []).length > rows.length) {
-    html += '<div class="warnbox">有班別尚未設定本期費用，上列並非全部應繳項目。</div>';
-  }
+  if (partial) html += '<div class="warnbox">有班別尚未設定本期費用，上列並非全部應繳項目。</div>';
   $("tuition").innerHTML = html;
 }
 
 async function loadMeal() {
   if (ROLE === "teacher") { $("c-meal").hidden = true; return; }
-  $("c-meal").hidden = false;
-  const { data: led } = await window.sb.from("meal_ledger")
-    .select("occurred_on, kind, amount, vendor, voided")
-    .eq("student_id", SID).eq("voided", false)
-    .order("occurred_on", { ascending: false }).limit(15);
-  if (!led || !led.length) {
-    $("meal").innerHTML = '<p class="empty">尚未有餐費紀錄。</p>';
-    return;
-  }
-  // The balance must cover ALL history, not just the 15 rows shown.
+
   const { data: all } = await window.sb.from("meal_ledger")
     .select("kind, amount").eq("student_id", SID).eq("voided", false);
-  const b = (all || []).reduce((a, r) => a + (r.kind === "topup" ? r.amount : -r.amount), 0);
-  const cls = b < 0 ? "neg" : b < 500 ? "low" : "";
+  if (!all || !all.length) {
+    // No ledger rows is NOT a zero balance — they are simply not on the meal plan.
+    kpi("meal", { lab: "餐費餘額", v: "—", none: true, sub: "尚未有紀錄",
+                  link: "meals.html", linkText: "餐費台" });
+    $("c-meal").hidden = true;
+    return;
+  }
+  const b = all.reduce((a, r) => a + (r.kind === "topup" ? r.amount : -r.amount), 0);
+  kpi("meal", {
+    lab: "餐費餘額", v: b < 0 ? "欠 " + money(-b) : money(b),
+    tone: b < 500 ? "due" : "good",
+    sub: b < 0 ? "已欠款" : b < 500 ? "餘額偏低" : "",
+    link: "meals.html", linkText: "餐費台",
+  });
+
+  $("c-meal").hidden = false;
+  const { data: led } = await window.sb.from("meal_ledger")
+    .select("occurred_on, kind, amount, vendor")
+    .eq("student_id", SID).eq("voided", false)
+    .order("occurred_on", { ascending: false }).limit(10);
   $("meal").innerHTML =
-    `<div class="bal ${cls}">${b < 0 ? "欠 " + money(-b) : money(b)}</div>` +
     '<table><thead><tr><th>日期</th><th>項目</th><th class="num">金額</th></tr></thead><tbody>' +
-    led.map((r) => `<tr><td>${esc(r.occurred_on)}</td>` +
+    (led || []).map((r) => `<tr><td>${esc(r.occurred_on)}</td>` +
       `<td>${r.kind === "topup" ? "預繳" : "便當" + (r.vendor ? `（${esc(r.vendor)}）` : "")}</td>` +
       `<td class="num">${r.kind === "topup" ? "+" : "−"}${money(r.amount)}</td></tr>`).join("") +
     "</tbody></table>";
@@ -298,48 +357,41 @@ async function loadMeal() {
 async function loadLearn() {
   const [snap, mast, sc] = await Promise.all([
     window.sb.from("readiness_snapshots")
-      .select("snapshot_date, readiness, pct_mastered, pct_weak, pct_untested")
-      .eq("student_id", SID).order("snapshot_date", { ascending: false }).limit(1),
-    window.sb.from("student_archetype_mastery")
-      .select("status, subject").eq("student_id", SID),
-    window.sb.from("scores")
-      .select("score_100, exams(name, exam_date, status)").eq("student_id", SID),
+      .select("snapshot_date, readiness").eq("student_id", SID)
+      .order("snapshot_date", { ascending: false }).limit(1),
+    window.sb.from("student_archetype_mastery").select("status").eq("student_id", SID),
+    window.sb.from("scores").select("score_100, exams(name, exam_date, status)")
+      .eq("student_id", SID),
   ]);
 
-  let html = "";
   const s = (snap.data || [])[0];
-  if (s) {
-    html += `<p><b style="font-size:22px;color:var(--brand)">${Math.round(s.readiness)}</b>` +
-      ` <span class="msg">會考考點覆蓋度（已學範圍）· 統計至 ${esc(s.snapshot_date)}</span></p>`;
-  } else {
-    html += '<p class="empty">還沒有覆蓋度快照——測驗批改後就會開始累積。</p>';
-  }
+  kpi("readiness", s
+    ? { lab: "會考考點覆蓋度", v: Math.round(s.readiness), tone: "info",
+        sub: `已學範圍 · 統計至 ${s.snapshot_date}` }
+    : { lab: "會考考點覆蓋度", v: "—", none: true, sub: "測驗批改後開始累積" });
 
+  let html = "";
   const rows = mast.data || [];
   if (rows.length) {
     const by = {};
     rows.forEach((r) => { by[r.status] = (by[r.status] || 0) + 1; });
-    html += '<div class="mrow" style="margin-top:10px">' +
-      ["精熟", "接近", "不穩", "證據不足"].map((k) =>
-        `<div class="mstat"><b>${by[k] || 0}</b><span>${k}</span></div>`).join("") + "</div>" +
-      '<p class="msg" style="margin-top:6px">題型原型數（數學／自然）。詳細分析在出題台的分析報告。</p>';
+    html += '<div class="mrow">' + ["精熟", "接近", "不穩", "證據不足"].map((k) =>
+      `<div class="mstat"><b>${by[k] || 0}</b><span>${k}</span></div>`).join("") + "</div>";
   } else {
-    html += '<p class="empty" style="margin-top:8px">還沒有精熟度資料（需要先批改測驗）。</p>';
+    html += '<p class="empty">還沒有精熟度資料（需要先批改測驗）。</p>';
   }
 
   const graded = (sc.data || [])
     .filter((r) => r.exams && r.exams.status === "graded" && r.score_100 != null)
     .sort((a, b) => (b.exams.exam_date || "").localeCompare(a.exams.exam_date || ""))
-    .slice(0, 10);
-  if (graded.length) {
-    html += '<table style="margin-top:12px"><thead><tr><th>日期</th><th>測驗</th>' +
+    .slice(0, 8);
+  html += graded.length
+    ? '<table style="margin-top:8px"><thead><tr><th>日期</th><th>測驗</th>' +
       '<th class="num">分數</th></tr></thead><tbody>' +
       graded.map((r) => `<tr><td>${esc(r.exams.exam_date || "—")}</td>` +
         `<td>${esc(r.exams.name || "")}</td>` +
-        `<td class="num"><b>${Math.round(r.score_100)}</b></td></tr>`).join("") + "</tbody></table>";
-  } else {
-    html += '<p class="empty" style="margin-top:8px">還沒有已批改的測驗。</p>';
-  }
+        `<td class="num"><b>${Math.round(r.score_100)}</b></td></tr>`).join("") + "</tbody></table>"
+    : '<p class="empty" style="margin-top:6px">還沒有已批改的測驗。</p>';
   $("learn").innerHTML = html;
 }
 
