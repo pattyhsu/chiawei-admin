@@ -144,6 +144,15 @@ ul.list li.off { opacity: .55; }
 .searchbar { margin-bottom: 16px; }
 .searchbar input { max-width: 520px; font-size: 15px; padding: 9px 13px; }
 .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+/* An <a>, not a <button>, on purpose: applyReadOnly() hides ".actions button",
+   and a teacher on the read-only roster should still be able to open the
+   overview. Styled to match so it does not read as a stray link. */
+.btnlink {
+  font: inherit; font-size: 14px; text-decoration: none;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); color: var(--brand); padding: 7px 13px; font-weight: 700;
+}
+.btnlink:hover { border-color: var(--brand); }
 .teachers { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 6px; }
 .teachers label {
   display: flex; align-items: center; gap: 6px;
@@ -492,6 +501,7 @@ function renderStudentForm(box, s) {
       <button type="button" class="primary" id="s-save">${s ? "儲存" : "建立學生"}</button>
       ${s ? `<button type="button" class="danger" id="s-toggle">${s.active ? "停用" : "啟用"}</button>` : ""}
       ${s ? `<button type="button" id="s-bindcode">產生家長綁定碼</button>` : ""}
+      ${s ? `<a class="btnlink" href="student.html?id=${s.id}">檢視總覽 →</a>` : ""}
       <button type="button" id="s-cancel">取消</button>
     </div>
     <div class="fld" id="bind-out" style="margin-top:8px"></div>`;
