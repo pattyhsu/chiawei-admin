@@ -100,7 +100,7 @@ tr.void td { color: var(--muted); text-decoration: line-through; }
         <input type="number" id="price" min="1" max="100000" step="1" style="width:120px"></div>
       <div class="fl"><label>店家（選填）</label>
         <input type="text" id="vendor" maxlength="60" placeholder="例：阿婆便當" style="width:170px"></div>
-      <div class="fl"><label>班級篩選</label><select id="cls"></select></div>
+      <div class="fl"><label>年級篩選</label><select id="gradeSel"></select></div>
       <button class="ghost" type="button" id="reload">重新載入</button>
       <span class="msg" id="loadmsg"></span>
     </div>
@@ -150,9 +150,18 @@ const money = (n) => "NT$" + Number(n || 0).toLocaleString("en-US");
 const taipeiToday = () =>
   new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
 
-let STUDENTS = [];      // [{id, full_name, student_no, balance}]
-let CLASSES = [];
+let STUDENTS = [];      // [{id, full_name, student_no, grade, balance}]
 let DONE = new Set();   // student_ids already recorded for the chosen day
+
+// 便當 is ordered by whoever is in the building tonight, which tracks 年級 far
+// better than class: a student sits in several classes, and the class list is
+// 24 entries to scroll. Labels cover 國小/高中 too, so this keeps working if
+// those cohorts are ever rostered.
+const GRADE_LABEL = (g) =>
+  g >= 1 && g <= 6 ? "小" + "一二三四五六"[g - 1]
+  : g >= 7 && g <= 9 ? "國" + "一二三"[g - 7]
+  : g >= 10 && g <= 12 ? "高" + "一二三"[g - 10]
+  : `${g} 年級`;
 
 (async () => {
   await window.authGate();
@@ -165,19 +174,18 @@ let DONE = new Set();   // student_ids already recorded for the chosen day
   $("day").value = taipeiToday();
   $("tuDay").value = taipeiToday();
 
-  const { data: cls } = await window.sb.from("classes")
-    .select("id, name").eq("active", true).order("name");
-  CLASSES = cls || [];
-  $("cls").innerHTML = '<option value="">全部學生</option>' +
-    CLASSES.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
-
   await loadStudents();
+
+  // built from the grades actually present, so it never offers an empty option
+  const grades = [...new Set(STUDENTS.map((s) => s.grade))].filter((g) => g != null).sort((a, b) => a - b);
+  $("gradeSel").innerHTML = '<option value="">全部學生</option>' +
+    grades.map((g) => `<option value="${g}">${esc(GRADE_LABEL(g))}</option>`).join("");
   await loadDay();
   await loadHistory();
 
   $("reload").onclick = async () => { await loadDay(); };
   $("day").onchange = loadDay;
-  $("cls").onchange = renderStudents;
+  $("gradeSel").onchange = renderStudents;
   $("submit").onclick = submitDay;
   $("tuSave").onclick = saveTopup;
   $("hStudent").onchange = loadHistory;
@@ -185,7 +193,7 @@ let DONE = new Set();   // student_ids already recorded for the chosen day
 
 async function loadStudents() {
   const { data: st, error } = await window.sb.from("students")
-    .select("id, full_name, student_no, active")
+    .select("id, full_name, student_no, grade, active")
     .eq("active", true).order("student_no");
   if (error) { $("loadmsg").className = "msg err"; $("loadmsg").textContent = error.message; return; }
 
@@ -202,10 +210,6 @@ async function loadStudents() {
     `<option value="${s.id}">${esc(s.student_no)}　${esc(s.full_name)}</option>`).join("");
   $("tuStudent").innerHTML = opts;
   $("hStudent").innerHTML = '<option value="">全部</option>' + opts;
-
-  const { data: enr } = await window.sb.from("enrollments")
-    .select("student_id, class_id").eq("active", true);
-  window.ENROLL = enr || [];
 }
 
 /** Read the chosen day FIRST, so students already recorded show as locked
@@ -224,10 +228,9 @@ async function loadDay() {
 }
 
 function visibleStudents() {
-  const cid = $("cls").value;
-  if (!cid) return STUDENTS;
-  const ids = new Set((window.ENROLL || []).filter((e) => e.class_id === cid).map((e) => e.student_id));
-  return STUDENTS.filter((s) => ids.has(s.id));
+  const g = $("gradeSel").value;
+  if (!g) return STUDENTS;
+  return STUDENTS.filter((s) => String(s.grade) === g);
 }
 
 function renderStudents() {
