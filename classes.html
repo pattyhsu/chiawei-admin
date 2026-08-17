@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>家偉補習班 · 班級</title>
+<!-- 名冊 — 班級 × 學生 × 任教老師. Hand-written, following content.html.
+
+     ⚠️ THIS PAGE HANDLES MINORS' PII (姓名 / 學號 / 家長電話). 個資法 applies.
+     Read auth.js's header note: the client-side gate is NOT the boundary, and
+     this page is served publicly by GitHub Pages from a public repo. What
+     actually protects the data is RLS + column grants in the DATABASE
+     (supabase/migrations/20260728000002_roster_admin_surface.sql), proven by
+     pgTAP 10_roster_admin_rls_test.sql:
+       * every read and write goes under the anon key + the signed-in owner's
+         session; owner/admin only, anon hard-revoked
+       * students.profile_id (an auth link) and profiles.role are NOT grantable
+         from a browser at all — the column grants exclude them
+       * classes/students have NO delete grant: 停用 is a soft-delete, and every
+         FK into them is NO ACTION so a hard delete could not work anyway
+       * every write lands an audit row via a security-definer trigger
+
+     Teacher LOGINS live on teachers.html (moved off the 出題台 app 2026-08-05).
+     Creating one still needs the Supabase Auth Admin API (service_role), which
+     must never reach a browser — that one operation goes through the
+     `teacher-create` Edge Function; everything else there is plain RLS'd writes.
+
+     Load order is load-bearing: auth.js hides <body> at parse time and init()
+     must not run until authGate() reaches a verdict. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sb.js"></script>
+<!-- Teachers admitted READ-ONLY since 2026-08-12: RLS (0009) scopes every query
+     to their own classes/students, and RLS denies their writes anyway (silently
+     for UPDATEs) — the RO flag below just makes the UI honest about it. -->
+<script>window.PAGE_ROLES = ["owner", "admin", "teacher"];</script>
+<script src="auth.js"></script>
+<style>
+:root {
+  /* Brand palette (chiawei CLAUDE.md): 寶藍 primary, 黃/橘 accents.
+     Copied per-page, matching content.html — this repo has no shared stylesheet. */
+  --brand: #2547c7;
+  --brand-yellow: #f8c414;
+  --brand-orange: #ef5226;
+  --bg: #f6f7fb;
+  --surface: #fff;
+  --ink: #1b1f2a;
+  --muted: #6b7280;
+  --line: #e3e6ee;
+  --danger: #c0362c;
+  --ok: #1e7d46;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--bg);
+  font-family: "PingFang TC", "Noto Sans TC", system-ui, -apple-system, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+header {
+  display: flex; align-items: center; gap: 16px;
+  padding: 10px 16px; background: var(--surface);
+  border-bottom: 2px solid var(--brand);
+  position: sticky; top: 0; z-index: 5; flex-wrap: wrap;
+}
+header .brand { font-weight: 700; color: var(--brand); }
+header .spacer { flex: 1; }
+header .who { font-size: 13px; color: var(--muted); }
+header a.home { font-size: 13px; color: var(--muted); text-decoration: none; }
+header a.home:hover { color: var(--brand); }
+main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 80px; }
+
+button {
+  font: inherit; font-size: 14px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); color: var(--ink); padding: 7px 13px;
+}
+button:hover { border-color: var(--brand); }
+button.primary {
+  background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600;
+}
+button.primary:hover { filter: brightness(1.08); }
+button.small { font-size: 13px; padding: 4px 10px; }
+button.danger { color: var(--danger); }
+button:disabled { opacity: .5; cursor: default; }
+
+input, select, textarea {
+  font: inherit; font-size: 14px; width: 100%;
+  padding: 7px 10px; border: 1px solid var(--line);
+  border-radius: 8px; background: #fff; color: var(--ink);
+}
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--brand); border-color: transparent; }
+label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; font-weight: 600; }
+.fld { margin-bottom: 12px; }
+
+/* three panes: 班級 → 學生 → 詳細 */
+.panes { display: grid; grid-template-columns: 260px 1fr 340px; gap: 16px; align-items: start; }
+@media (max-width: 1000px) { .panes { grid-template-columns: 1fr; } }
+.pane {
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 12px; padding: 14px 16px;
+}
+.pane h2 {
+  font-size: 14px; color: var(--brand); margin: 0 0 10px;
+  display: flex; align-items: center; gap: 8px;
+}
+.pane h2 .spacer { flex: 1; }
+.hint { font-size: 12px; color: var(--muted); line-height: 1.7; }
+
+ul.list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+ul.list li {
+  border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px;
+  cursor: pointer; display: flex; align-items: center; gap: 8px;
+}
+ul.list li:hover { border-color: var(--brand); }
+ul.list li.on { background: #eef1fc; border-color: var(--brand); }
+ul.list li.off { opacity: .55; }
+.rowmain { flex: 1; min-width: 0; }
+.rowname { font-weight: 600; font-size: 14px; }
+.rowmeta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.pill {
+  font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  background: #fff6e0; color: #9a6b00; font-weight: 700;
+}
+.empty { font-size: 13px; color: var(--muted); padding: 8px 2px; }
+.err {
+  background: #fdecea; border: 1px solid #f5c2bd; color: var(--danger);
+  border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 12px;
+}
+.ok { color: var(--ok); font-size: 13px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+/* compact 家長聯絡 block: one small label + inputs per row */
+.guardian { display: grid; gap: 6px; margin-bottom: 12px; }
+.guardian .grow { display: grid; grid-template-columns: 2.6em 1fr 1fr 1fr; gap: 8px; align-items: center; }
+.guardian .grow.one { grid-template-columns: 2.6em 1fr; }
+.guardian .glabel { font-size: 13px; color: var(--muted); font-weight: 600; text-align: right; }
+.guardian input { margin: 0; }
+/* grade filter tabs — the first cut, above the 班級 list */
+.gradetabs { display: flex; gap: 6px; margin-bottom: 12px; }
+.gradetabs button { flex: 1; font-size: 13px; padding: 6px 0; }
+.gradetabs button.on { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 600; }
+/* global student search */
+.searchbar { margin-bottom: 16px; }
+.searchbar input { max-width: 520px; font-size: 15px; padding: 9px 13px; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+/* An <a>, not a <button>, on purpose: applyReadOnly() hides ".actions button",
+   and a teacher on the read-only roster should still be able to open the
+   overview. Styled to match so it does not read as a stray link. */
+.btnlink {
+  font: inherit; font-size: 14px; text-decoration: none;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); color: var(--brand); padding: 7px 13px; font-weight: 700;
+}
+.btnlink:hover { border-color: var(--brand); }
+.teachers { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 6px; }
+.teachers label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; color: var(--ink); font-weight: 400; margin: 0;
+}
+.teachers input { width: auto; }
+.enrolled { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">家偉補習班 · 名冊</span>
+  <a class="home" href="index.html">← 管理後台</a>
+  <span class="spacer"></span>
+  <span class="who" id="who"></span>
+  <button type="button" id="btn-signout">登出</button>
+</header>
+
+<main>
+  <div id="err" class="err" style="display:none"></div>
+
+  <p class="hint" style="margin-top:0" id="page-hint">
+    這裡維護<strong>班級</strong>與<strong>誰教哪一班</strong>。
+    學生的資料改在 <a href="student.html">學生總覽</a> 編輯 —— 點下面任何一位學生就會過去。
+    老師的登入帳號在 <a href="teachers.html">老師帳號</a>。
+    刪除一律是「停用」，資料會保留（個資法：學生紀錄不做硬刪除）。
+  </p>
+
+  <div class="panes">
+    <!-- ── 班級 ─────────────────────────────────────────────────────────── -->
+    <section class="pane">
+      <h2>班級<span class="spacer"></span>
+        <button type="button" class="small" id="btn-new-class">＋ 新增</button>
+      </h2>
+      <div class="gradetabs" id="grade-tabs"></div>
+      <ul class="list" id="class-list"></ul>
+      <p class="empty" id="class-empty" style="display:none">還沒有班級，先新增一個。</p>
+    </section>
+
+    <!-- ── 學生 ─────────────────────────────────────────────────────────── -->
+    <section class="pane">
+      <h2 id="students-title">學生<span class="spacer"></span>
+        <button type="button" class="small" id="btn-new-student" disabled>＋ 新增學生</button>
+      </h2>
+      <ul class="list" id="student-list"></ul>
+      <p class="empty" id="student-empty">← 先從左邊選一個班級。</p>
+      <p class="hint" id="student-hint" style="display:none">點學生開啟<strong>學生總覽</strong>編輯資料。</p>
+    </section>
+
+    <!-- ── 詳細 ─────────────────────────────────────────────────────────── -->
+    <section class="pane">
+      <h2 id="detail-title">詳細</h2>
+      <div id="detail"><p class="empty">選一個班級來編輯。</p></div>
+    </section>
+  </div>
+</main>
+
+<script>
+// ── state ───────────────────────────────────────────────────────────────────
+let CLASSES = [], STUDENTS = [], TEACHERS = [], ENROLL = [], ASSIGN = [];
+let selClass = null, mode = null;   // mode: class | new-class  (students are edited in 學生總覽)
+let selGrade = 7;   // the first cut: which 年級's classes are shown (國一 by default)
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// Teachers browse read-only: RLS scopes their reads to their own classes and
+// denies their writes regardless — RO just keeps the UI from offering saves
+// that would silently no-op.
+const RO = () => window.CURRENT_USER_ROLE === "teacher";
+function applyReadOnly(box) {
+  if (!RO()) return;
+  box.querySelectorAll("input, textarea, select").forEach((el) => { el.disabled = true; });
+  box.querySelectorAll(".actions button").forEach((b) => { b.style.display = "none"; });
+}
+
+function fail(e) {
+  const box = $("err");
+  // Surface the DB's own message: with RLS as the boundary, a refusal here is
+  // information (42501 = the policy said no), not noise to swallow.
+  box.textContent = "操作失敗：" + (e?.message || e);
+  box.style.display = "";
+  setTimeout(() => (box.style.display = "none"), 8000);
+}
+const clearErr = () => ($("err").style.display = "none");
+
+// Empty string must become NULL, never '': students_student_no_uidx is
+// UNIQUE ... WHERE student_no IS NOT NULL, so two blank 學號 collide with 23505.
+const nul = (v) => { const s = (v ?? "").trim(); return s === "" ? null : s; };
+const num = (v) => { const s = (v ?? "").trim(); return s === "" ? null : Number(s); };
+
+// ── load ────────────────────────────────────────────────────────────────────
+async function loadAll() {
+  const [cls, stu, prof, enr, asg] = await Promise.all([
+    window.sb.from("classes").select("id,name,grade,subject,active").order("name"),
+    window.sb.from("students")
+      .select("id,full_name,student_no,school,grade,father_name,father_phone,father_line,mother_name,mother_phone,mother_line,home_phone,other_contact,note,active")
+      .order("student_no", { nullsFirst: false }),
+    window.sb.from("profiles").select("id,username,full_name,role,active").eq("role", "teacher"),
+    window.sb.from("enrollments").select("id,student_id,class_id,active"),
+    window.sb.from("class_teachers").select("profile_id,class_id"),
+  ]);
+  for (const r of [cls, stu, prof, enr, asg]) if (r.error) throw r.error;
+  CLASSES = cls.data; STUDENTS = stu.data; TEACHERS = prof.data;
+  ENROLL = enr.data; ASSIGN = asg.data;
+}
+
+const classStudents = (cid) => ENROLL
+  .filter((e) => e.class_id === cid && e.active)
+  .map((e) => STUDENTS.find((s) => s.id === e.student_id))
+  .filter(Boolean)
+  .sort((a, b) => (a.student_no || "￿").localeCompare(b.student_no || "￿"));
+
+const studentClasses = (sid) => ENROLL
+  .filter((e) => e.student_id === sid && e.active)
+  .map((e) => CLASSES.find((c) => c.id === e.class_id)).filter(Boolean);
+
+// the subject-classes offered for a grade (國一 has no 理化), in a fixed order.
+// A student picks a subset via 修習科目 checkboxes = their enrollments.
+const SUBJ_ORDER = { "國文": 0, "英文": 1, "數學": 2, "自然": 3 };
+const GRADE_NAME = { 7: "國一", 8: "國二", 9: "國三" };
+const gradeSubjectClasses = (grade) => CLASSES
+  .filter((c) => c.active && c.grade === grade && c.subject)
+  .sort((a, b) => ((SUBJ_ORDER[a.subject] ?? 9) - (SUBJ_ORDER[b.subject] ?? 9))
+    || (a.name || "").localeCompare(b.name || "", "zh-Hant"));
+
+// ── render ──────────────────────────────────────────────────────────────────
+// grade tabs — the first cut. Pick a 年級, then its 班級 show below.
+function renderGradeTabs() {
+  const box = $("grade-tabs");
+  box.innerHTML = [7, 8, 9].map((g) =>
+    `<button type="button" data-grade="${g}" class="${selGrade === g ? "on" : ""}">${GRADE_NAME[g]}</button>`).join("");
+  box.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
+    selGrade = Number(b.dataset.grade);
+    selClass = null; mode = null;   // reset the downstream selection
+    renderAll();
+  }));
+}
+
+function renderClasses() {
+  const ul = $("class-list");
+  const shown = CLASSES.filter((c) => c.grade === selGrade);
+  ul.innerHTML = shown.map((c) => `
+    <li data-id="${c.id}" class="${selClass === c.id ? "on" : ""}${c.active ? "" : " off"}">
+      <span class="rowmain">
+        <span class="rowname">${esc(c.name)}</span>
+        <span class="rowmeta">${c.subject ? esc(c.subject) : "—"} · ${classStudents(c.id).length} 人</span>
+      </span>
+      ${c.active ? "" : '<span class="pill">已停用</span>'}
+    </li>`).join("");
+  $("class-empty").style.display = shown.length ? "none" : "";
+  $("class-empty").textContent = `${GRADE_NAME[selGrade] || ""}還沒有班級。`;
+  ul.querySelectorAll("li").forEach((li) => li.addEventListener("click", () => {
+    selClass = li.dataset.id; mode = "class"; renderAll();
+  }));
+}
+
+// leaving search returns to the browse view
+
+const studentRowHtml = (s) => `
+    <li data-id="${s.id}" class="${s.active ? "" : "off"}">
+      <span class="rowmain">
+        <span class="rowname">${esc(s.full_name)}</span>
+        <span class="rowmeta">${esc(s.student_no || "無學號")}${s.school ? " · " + esc(s.school) : ""}${
+          s.grade ? " · " + s.grade + " 年級" : ""}${(() => { const p = s.father_phone || s.mother_phone || s.home_phone; return p ? " · " + esc(p) : ""; })()}</span>
+      </span>
+      ${s.active ? "" : '<span class="pill">已停用</span>'}
+    </li>`;
+
+// name / 學號 / 就讀學校 substring, contact-name substring, or a ≥3-digit phone
+// run matched digits-only (so 0912345 finds 0912-345-678 across all 4 phone slots).
+function renderStudents() {
+  const ul = $("student-list");
+  const cls = CLASSES.find((c) => c.id === selClass);
+  $("students-title").firstChild.textContent = cls ? `學生 · ${cls.name}` : "學生";
+  $("btn-new-student").disabled = !selClass;
+  $("student-hint").style.display = selClass ? "" : "none";
+  if (!selClass) {
+    ul.innerHTML = ""; $("student-empty").style.display = "";
+    $("student-empty").textContent = "← 先選一個班級。";
+    return;
+  }
+  const rows = classStudents(selClass);
+  $("student-empty").style.display = rows.length ? "none" : "";
+  $("student-empty").textContent = "這個班級還沒有學生。";
+  ul.innerHTML = rows.map(studentRowHtml).join("");
+  // A student's details live in 學生總覽 now — this list is a way IN, not a form.
+  ul.querySelectorAll("li").forEach((li) => li.addEventListener("click", () => {
+    location.href = `student.html?id=${li.dataset.id}`;
+  }));
+}
+
+function renderDetail() {
+  const box = $("detail");
+  if (mode === "new-class") return renderClassForm(box, null);
+  if (selClass) return renderClassForm(box, CLASSES.find((c) => c.id === selClass));
+  box.innerHTML = '<p class="empty">選一個班級或學生來編輯。</p>';
+  $("detail-title").textContent = "詳細";
+}
+
+function renderClassForm(box, c) {
+  $("detail-title").textContent = c ? "編輯班級" : "新增班級";
+  box.innerHTML = `
+    <div class="fld"><label>班級名稱</label><input id="f-name" value="${esc(c?.name || "")}" placeholder="八年級數學班"></div>
+    <div class="row2">
+      <div class="fld"><label>年級</label><input id="f-grade" type="number" min="1" max="12" value="${c?.grade ?? selGrade ?? ""}"></div>
+      <div class="fld"><label>科目</label><input id="f-subject" value="${esc(c?.subject || "")}" placeholder="數學"></div>
+    </div>
+    ${c && !RO() ? `
+      <div class="fld">
+        <label>任教老師</label>
+        ${TEACHERS.length === 0
+          ? '<p class="hint">還沒有老師帳號。請到<a href="teachers.html">老師帳號</a>建立。</p>'
+          : `<div class="teachers">${TEACHERS.map((t) => `
+              <label><input type="checkbox" data-teacher="${t.id}"
+                ${ASSIGN.some((a) => a.class_id === c.id && a.profile_id === t.id) ? "checked" : ""}>
+                ${esc(t.full_name || t.username)}${t.active ? "" : "（已停用）"}</label>`).join("")}</div>`}
+      </div>` : ""}
+    <div class="actions">
+      <button type="button" class="primary" id="f-save">${c ? "儲存" : "建立"}</button>
+      ${c ? `<button type="button" class="danger" id="f-toggle">${c.active ? "停用" : "啟用"}</button>` : ""}
+      <button type="button" id="f-cancel">取消</button>
+    </div>`;
+  applyReadOnly(box);
+
+  $("f-save").addEventListener("click", async () => {
+    clearErr();
+    const fields = {
+      name: nul($("f-name").value), grade: num($("f-grade").value), subject: nul($("f-subject").value),
+    };
+    if (!fields.name) return fail("請輸入班級名稱");
+    try {
+      if (c) {
+        const { error } = await window.sb.from("classes").update(fields).eq("id", c.id);
+        if (error) throw error;
+        await saveTeachers(c.id);
+      } else {
+        const { data, error } = await window.sb.from("classes").insert(fields).select("id").single();
+        if (error) throw error;
+        selClass = data.id; mode = "class";
+      }
+      await refresh();
+    } catch (e) { fail(e); }
+  });
+
+  if (c) $("f-toggle").addEventListener("click", async () => {
+    clearErr();
+    try {
+      // Soft-delete: no DELETE grant exists on classes, and every FK into it is
+      // NO ACTION — a hard delete would 23503 even if it were granted.
+      const { error } = await window.sb.from("classes").update({ active: !c.active }).eq("id", c.id);
+      if (error) throw error;
+      await refresh();
+    } catch (e) { fail(e); }
+  });
+
+  $("f-cancel").addEventListener("click", () => { mode = selClass ? "class" : null; renderAll(); });
+}
+
+async function saveTeachers(cid) {
+  const want = [...document.querySelectorAll("[data-teacher]")]
+    .filter((el) => el.checked).map((el) => el.dataset.teacher);
+  const have = ASSIGN.filter((a) => a.class_id === cid).map((a) => a.profile_id);
+  const add = want.filter((id) => !have.includes(id));
+  const del = have.filter((id) => !want.includes(id));
+  if (del.length) {
+    const { error } = await window.sb.from("class_teachers")
+      .delete().eq("class_id", cid).in("profile_id", del);
+    if (error) throw error;
+  }
+  if (add.length) {
+    const { error } = await window.sb.from("class_teachers")
+      .insert(add.map((profile_id) => ({ profile_id, class_id: cid })));
+    if (error) throw error;
+  }
+}
+
+function renderAll() { renderGradeTabs(); renderClasses(); renderStudents(); renderDetail(); }
+async function refresh() { await loadAll(); renderAll(); }
+
+// ── boot ────────────────────────────────────────────────────────────────────
+(async () => {
+  await window.authGate();
+  if (!window.CURRENT_USER_ROLE) return;            // gate already redirected
+  $("btn-signout").addEventListener("click", window.signOut);
+  $("who").textContent = `${window.CURRENT_USER.email} · ${window.CURRENT_USER_ROLE}`;
+  if (RO()) {
+    $("btn-new-class").style.display = "none";
+    $("btn-new-student").style.display = "none";
+    $("page-hint").innerHTML =
+      "唯讀模式：你看到的是<strong>自己任教班級</strong>的名冊（資料庫依任教關係過濾）。" +
+      "需要修改請找負責人或主任。";
+  }
+  $("btn-new-class").addEventListener("click", () => { mode = "new-class"; renderDetail(); });
+  // Creating a student is possible from here AND from 學生總覽, but there is only
+  // ONE create form — this hands off with the class pre-selected rather than
+  // growing a second write path that could drift from it.
+  $("btn-new-student").addEventListener("click", () => {
+    if (!selClass) return;
+    location.href = `student.html?new=1&class=${selClass}`;
+  });
+  try { await refresh(); } catch (e) { fail(e); }
+})();
+</script>
+</body>
+</html>

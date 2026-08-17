@@ -170,7 +170,7 @@ ul.list li.off { opacity: .55; }
 
   <p class="hint" style="margin-top:0">
     建立老師登入、指派任教班級、停用離職帳號。班級與學生名冊在
-    <a href="roster.html">名冊</a>。老師只看得到自己任教班級的學生與成績。
+    <a href="classes.html">班級</a>。老師只看得到自己任教班級的學生與成績。
     帳號一律<strong>停用</strong>而不刪除，過去出過的卷和批改紀錄才留得住。
   </p>
 
@@ -300,7 +300,7 @@ function rowsHtml(rows) {
           CLASSES.length
             ? CLASSES.map((c) => `<label><input type="checkbox" data-cls="${esc(c.id)}"${
                 draftClasses.includes(c.id) ? " checked" : ""}> ${esc(c.name)}</label>`).join("")
-            : '<span class="empty">還沒有班級。請先到<a href="roster.html">名冊</a>建立班級。</span>'
+            : '<span class="empty">還沒有班級。請先到<a href="classes.html">班級</a>建立班級。</span>'
         }</div>
         <div class="actions">
           <button type="button" class="primary small" data-save="${esc(r.id)}">儲存</button>

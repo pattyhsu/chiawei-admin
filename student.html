@@ -67,7 +67,8 @@ button.danger:hover { color: var(--orange); text-decoration: underline; }
 .hdr .no { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 14px; }
 .hdr .meta { font-size: 13px; color: var(--muted); }
 .hdr .meta b { color: var(--ink); font-weight: 700; }
-.hdr .edit { margin-left: auto; font-size: 13px; }
+.hdr .edit { margin-left: auto; }
+.hdr .edit button { font-size: 13px; padding: 5px 13px; }
 .chips { display: flex; flex-wrap: wrap; gap: 5px; }
 .chip { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 1px 9px;
   background: #eef1fc; color: var(--brand); }
@@ -124,6 +125,19 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .note .when { font-size: 11px; color: var(--muted); flex: none; width: 74px;
   font-variant-numeric: tabular-nums; }
 .note .body { flex: 1; font-size: 13px; white-space: pre-wrap; }
+.fld { margin-bottom: 9px; }
+.fld label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+.fld input, .fld textarea { width: 100%; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.guardian { display: grid; gap: 6px; margin-bottom: 9px; }
+.grow { display: grid; grid-template-columns: 34px 1fr 1fr 1fr; gap: 6px; align-items: center; }
+.grow.one { grid-template-columns: 34px 1fr; }
+.glabel { font-size: 12px; color: var(--muted); }
+.subjbox { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 10px; }
+.subjbox label { display: flex; align-items: center; gap: 5px; font-size: 13px; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+button.ghost { background: #fff; border: 1px solid var(--line); color: var(--ink); }
+button.warn { background: #fff; border: 2px solid var(--orange); color: var(--orange); }
 .noteform { display: flex; gap: 7px; align-items: flex-start; margin-bottom: 10px; }
 .noteform textarea { flex: 1; resize: vertical; }
 </style>
@@ -132,13 +146,17 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 <div class="wrap">
   <div class="top">
     <h1>學生總覽</h1>
-    <select id="pick" style="min-width:230px"></select>
+    <input id="find" type="search" list="findlist" placeholder="🔍 姓名 / 學號" autocomplete="off"
+      style="min-width:220px">
+    <datalist id="findlist"></datalist>
+    <button type="button" id="btn-new">＋ 新增學生</button>
     <span class="msg" id="pickmsg"></span>
-    <span class="msg"><a href="index.html">← 回後台</a>　<a href="roster.html">名冊</a>
+    <span class="msg"><a href="index.html">← 回後台</a>　<a href="classes.html">班級</a>
       　<span id="who"></span> <a href="#" id="btn-signout">登出</a></span>
   </div>
 
   <div id="body" hidden>
+    <div class="card" id="editor" hidden></div>
     <div class="hdr" id="hdr"></div>
     <div class="kpis" id="kpis"></div>
 
@@ -189,7 +207,7 @@ const GRADE_LABEL = (g) =>
   : g >= 10 && g <= 12 ? "高" + "一二三"[g - 10]
   : (g == null ? "—" : `${g} 年級`);
 
-let ROLE = null, SID = null;
+let ROLE = null, SID = null, ALL = [], STU = null, CLASSES = [], ENROLL = [], NEW_CLASS = null;
 // The three KPI tiles are filled by three independent async loads, so each one
 // writes its own slot and the row is re-rendered from the collected state —
 // otherwise whichever query returned last would blow away the others.
@@ -222,13 +240,31 @@ function renderKpis() {
   if (error) { $("pickmsg").className = "msg err"; $("pickmsg").textContent = error.message; return; }
   if (!st.length) { $("pickmsg").textContent = "沒有可檢視的學生。"; return; }
 
-  $("pick").innerHTML = '<option value="">選擇學生…</option>' + st.map((s) =>
-    `<option value="${s.id}">${esc(s.student_no)}　${esc(s.full_name)}</option>`).join("");
-  $("pick").onchange = () => load($("pick").value);
+  ALL = st;
+  // A 164-entry <select> is not a way to find anyone. Type-to-filter over both
+  // 姓名 and 學號; the datalist option VALUE is the label the browser fills in,
+  // so we resolve back to an id by matching that label.
+  $("findlist").innerHTML = st.map((s) =>
+    `<option value="${esc(s.student_no)}　${esc(s.full_name)}"></option>`).join("");
+  const pickByLabel = () => {
+    const v = $("find").value.trim();
+    const hit = st.find((s) => `${s.student_no}　${s.full_name}` === v)
+      || st.find((s) => s.student_no === v || s.full_name === v);
+    if (hit) load(hit.id);
+  };
+  $("find").addEventListener("input", pickByLabel);
+  $("find").addEventListener("change", pickByLabel);
   $("noteAdd").onclick = addNote;
+  $("btn-new").onclick = () => openEdit(null);
 
-  const qs = new URLSearchParams(location.search).get("id");
-  if (qs && st.some((s) => s.id === qs)) { $("pick").value = qs; load(qs); }
+  const q = new URLSearchParams(location.search);
+  const qs = q.get("id");
+  if (q.get("new") === "1") { NEW_CLASS = q.get("class"); openEdit(null); }
+  else if (qs && st.some((s) => s.id === qs)) {
+    const s0 = st.find((x) => x.id === qs);
+    $("find").value = `${s0.student_no}　${s0.full_name}`;
+    load(qs);
+  }
 })();
 
 async function load(id) {
@@ -244,11 +280,13 @@ async function load(id) {
 }
 
 async function loadBasic() {
+  $("editor").hidden = true;
   const { data: s } = await window.sb.from("students")
     .select("id, full_name, student_no, grade, school, note, active, father_name, father_phone, " +
             "mother_name, mother_phone, home_phone, other_contact, father_line, mother_line")
     .eq("id", SID).single();
   if (!s) return;
+  STU = s;
 
   const { data: enr } = await window.sb.from("enrollments")
     .select("active, classes(name)").eq("student_id", SID);
@@ -265,7 +303,9 @@ async function loadBasic() {
     (s.active ? "" : '<span class="chip warn">已停用</span>') +
     `<span class="chips">${chips || '<span class="msg">未加入任何班級</span>'}</span>` +
     ((ROLE === "owner" || ROLE === "admin")
-      ? `<span class="edit"><a href="roster.html">在名冊編輯 →</a></span>` : "");
+      ? `<span class="edit"><button type="button" id="btn-edit">編輯資料</button></span>` : "");
+  const eb = $("btn-edit");
+  if (eb) eb.onclick = () => openEdit(STU);
 
   // 🔑 THE ONE POLICY THIS PAGE ENFORCES IN CODE. RLS would happily hand a
   // teacher these columns for their own students (verified with a real JWT);
@@ -393,6 +433,160 @@ async function loadLearn() {
         `<td class="num"><b>${Math.round(r.score_100)}</b></td></tr>`).join("") + "</tbody></table>"
     : '<p class="empty" style="margin-top:6px">還沒有已批改的測驗。</p>';
   $("learn").innerHTML = html;
+}
+
+const nul = (v) => { const t = (v ?? "").trim(); return t === "" ? null : t; };
+const num = (v) => { const t = (v ?? "").trim(); return t === "" ? null : Number(t); };
+const SUBJ_ORDER = { 國文: 0, 英文: 1, 數學: 2, 自然: 3 };
+const gradeSubjectClasses = (grade) => CLASSES
+  .filter((c) => c.active && c.grade === grade && c.subject)
+  .sort((a, b) => ((SUBJ_ORDER[a.subject] ?? 9) - (SUBJ_ORDER[b.subject] ?? 9))
+    || (a.name || "").localeCompare(b.name || "", "zh-Hant"));
+const studentClassIds = (sid) => new Set(ENROLL
+  .filter((e) => e.student_id === sid && e.active).map((e) => e.class_id));
+
+async function loadRefs() {
+  if (CLASSES.length) return;
+  const [c, e] = await Promise.all([
+    window.sb.from("classes").select("id,name,grade,subject,active").order("name"),
+    window.sb.from("enrollments").select("student_id,class_id,active"),
+  ]);
+  CLASSES = c.data || []; ENROLL = e.data || [];
+}
+
+/** s = the student row, or null to create one. */
+async function openEdit(s) {
+  await loadRefs();
+  const newCls = s ? null : CLASSES.find((c) => c.id === NEW_CLASS);
+  const grade = s ? s.grade : (newCls ? newCls.grade : null);
+  const subj = grade ? gradeSubjectClasses(grade) : [];
+  const has = s ? studentClassIds(s.id) : new Set(newCls ? [newCls.id] : []);
+  const box = $("editor");
+  box.hidden = false;
+  $("body").hidden = false;
+  box.innerHTML = `
+    <h2>${s ? "編輯學生資料" : "新增學生"}</h2>
+    <div class="row2">
+      <div class="fld"><label>姓名</label><input id="f-name" value="${esc(s?.full_name || "")}"></div>
+      <div class="fld"><label>學號</label><input id="f-no" value="${esc(s?.student_no || "")}"></div>
+    </div>
+    <div class="row2">
+      <div class="fld"><label>年級</label><input id="f-grade" type="number" min="1" max="12" value="${s?.grade ?? (newCls?.grade ?? "")}"></div>
+      <div class="fld"><label>就讀學校</label><input id="f-school" value="${esc(s?.school || "")}"></div>
+    </div>
+    <div class="fld"><label>家長聯絡</label></div>
+    <div class="guardian">
+      <div class="grow"><span class="glabel">父</span>
+        <input id="f-fname" placeholder="姓名" value="${esc(s?.father_name || "")}">
+        <input id="f-fphone" placeholder="電話" value="${esc(s?.father_phone || "")}">
+        <input id="f-fline" placeholder="LINE ID" value="${esc(s?.father_line || "")}"></div>
+      <div class="grow"><span class="glabel">母</span>
+        <input id="f-mname" placeholder="姓名" value="${esc(s?.mother_name || "")}">
+        <input id="f-mphone" placeholder="電話" value="${esc(s?.mother_phone || "")}">
+        <input id="f-mline" placeholder="LINE ID" value="${esc(s?.mother_line || "")}"></div>
+      <div class="grow one"><span class="glabel">家裡</span><input id="f-hphone" value="${esc(s?.home_phone || "")}"></div>
+      <div class="grow one"><span class="glabel">其他</span><input id="f-other" value="${esc(s?.other_contact || "")}"></div>
+    </div>
+    <div class="fld"><label>標註（原校班級、座位…）</label>
+      <textarea id="f-note" rows="2">${esc(s?.note || "")}</textarea></div>
+    ${subj.length ? `<div class="fld"><label>修習班級（${esc(GRADE_LABEL(grade))}）</label></div>
+    <div class="subjbox">${subj.map((c) =>
+      `<label><input type="checkbox" data-subj="${c.id}" ${has.has(c.id) ? "checked" : ""}>${esc(c.name)}</label>`).join("")}</div>` : ""}
+    <div class="actions">
+      <button type="button" id="f-save">${s ? "儲存" : "建立學生"}</button>
+      <button type="button" class="ghost" id="f-cancel">取消</button>
+      ${s ? `<button type="button" class="warn" id="f-toggle">${s.active ? "停用" : "啟用"}</button>` : ""}
+      ${s ? `<button type="button" class="ghost" id="f-bind">產生家長綁定碼</button>` : ""}
+      <span class="msg" id="f-msg"></span>
+    </div>
+    <div class="msg" id="f-bindout" style="margin-top:8px"></div>`;
+
+  $("f-cancel").onclick = () => {
+    box.hidden = true;
+    if (!SID) $("body").hidden = true;
+  };
+  $("f-save").onclick = () => saveStudent(s);
+  if (s) {
+    $("f-toggle").onclick = async () => {
+      const { error } = await window.sb.from("students")
+        .update({ active: !s.active }).eq("id", s.id);
+      if (error) { $("f-msg").className = "msg err"; $("f-msg").textContent = error.message; return; }
+      box.hidden = true; CLASSES = []; ENROLL = []; load(s.id);
+    };
+    // 家長綁定碼 — parent_link_codes (migration 20260806000003). 14 天有效、父母各
+    // 一次 (max_uses 2). 32-char alphabet with no 0/O/1/I divides 256 evenly → no
+    // modulo bias.
+    $("f-bind").onclick = async () => {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      const buf = new Uint8Array(8);
+      crypto.getRandomValues(buf);
+      const code = [...buf].map((b) => chars[b % chars.length]).join("");
+      const { error } = await window.sb.from("parent_link_codes")
+        .insert({ code, student_id: s.id });
+      if (error) { $("f-bindout").className = "msg err"; $("f-bindout").textContent = error.message; return; }
+      $("f-bindout").className = "msg";
+      $("f-bindout").innerHTML = `家長綁定碼：<b style="font-size:17px;letter-spacing:.2em">${code}</b>` +
+        `（14 天內有效，父母各可使用一次）抄給家長 → 官網「家長專區」→ LINE 登入 → 輸入此碼。`;
+    };
+  }
+}
+
+async function saveStudent(s) {
+  const m = $("f-msg");
+  m.className = "msg";
+  const fields = {
+    full_name: nul($("f-name").value), student_no: nul($("f-no").value),
+    school: nul($("f-school").value), grade: num($("f-grade").value),
+    father_name: nul($("f-fname").value), father_phone: nul($("f-fphone").value),
+    father_line: nul($("f-fline").value),
+    mother_name: nul($("f-mname").value), mother_phone: nul($("f-mphone").value),
+    mother_line: nul($("f-mline").value),
+    home_phone: nul($("f-hphone").value), other_contact: nul($("f-other").value),
+    note: nul($("f-note").value),
+  };
+  if (!fields.full_name) { m.className = "msg err"; m.textContent = "請輸入學生姓名"; return; }
+  try {
+    let id = s ? s.id : null;
+    if (s) {
+      const { error } = await window.sb.from("students").update(fields).eq("id", s.id);
+      if (error) throw error;
+    } else {
+      const { data, error } = await window.sb.from("students").insert(fields).select("id").single();
+      if (error) throw error;
+      id = data.id;
+    }
+    await syncSubjects(id);
+    CLASSES = []; ENROLL = [];            // force a refetch so chips reflect the save
+    $("editor").hidden = true;
+    location.href = `student.html?id=${id}`;
+  } catch (e) {
+    m.className = "msg err"; m.textContent = e.message || String(e);
+  }
+}
+
+/** Ported verbatim from 名冊: if the checkbox block was never rendered (a grade
+ *  with no active classes), an empty `want` would unenroll the student from
+ *  everything — bail instead. Unchecking every rendered box still unenrolls;
+ *  that one is deliberate. */
+async function syncSubjects(studentId) {
+  const boxes = [...document.querySelectorAll("[data-subj]")];
+  if (!boxes.length) return;
+  const want = new Set(boxes.filter((b) => b.checked).map((b) => b.dataset.subj));
+  const have = studentClassIds(studentId);
+  for (const id of want) {
+    if (!have.has(id)) {
+      const { error } = await window.sb.from("enrollments")
+        .upsert({ student_id: studentId, class_id: id, active: true },
+                { onConflict: "student_id,class_id" });
+      if (error) throw error;
+    }
+  }
+  const del = [...have].filter((id) => !want.has(id));
+  if (del.length) {
+    const { error } = await window.sb.from("enrollments")
+      .delete().eq("student_id", studentId).in("class_id", del);
+    if (error) throw error;
+  }
 }
 
 async function loadNotes() {
