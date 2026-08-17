@@ -67,8 +67,15 @@ button.danger { background: #fff; border: 2px solid var(--orange); color: var(--
 .st input { margin: 0; width: 17px; height: 17px; accent-color: var(--brand); }
 .st .nm { font-weight: 700; font-size: 14px; }
 .st .no { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.st .bal { margin-left: auto; font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 700; }
-.st .bal.low { color: var(--orange); }
+.st .bal { margin-left: auto; font-size: 12px; font-variant-numeric: tabular-nums; }
+/* A balance is shown ONLY when it says something. Healthy = quiet grey; the
+   colour is reserved for the two states the manager should act on, so it still
+   means something when it appears. A student with no ledger rows shows NOTHING —
+   they have no balance, which is not the same as a balance of zero. */
+.st .bal.ok  { color: var(--muted); }
+.st .bal.low { color: var(--orange); font-weight: 700; }
+.st .bal.neg { color: #fff; background: var(--orange); font-weight: 700;
+  border-radius: 999px; padding: 1px 8px; }
 .st.done { background: #F3F6FF; border-color: #C9D5F7; cursor: default; }
 .st.done .tick { color: var(--brand); font-weight: 800; font-size: 12px; margin-left: auto; }
 .foot { display: flex; gap: 12px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
@@ -200,11 +207,17 @@ async function loadStudents() {
   // balances: one pass over the ledger, summed here rather than per student
   const { data: led } = await window.sb.from("meal_ledger")
     .select("student_id, kind, amount").eq("voided", false);
-  const bal = {};
+  // null (no ledger rows at all) is deliberately distinct from 0 (a real balance
+  // that happens to be empty) — the first is "not on the meal plan", the second
+  // is "needs a top-up", and rendering them the same made every student look
+  // overdue on day one.
+  const bal = Object.create(null);
   (led || []).forEach((r) => {
     bal[r.student_id] = (bal[r.student_id] || 0) + (r.kind === "topup" ? r.amount : -r.amount);
   });
-  STUDENTS = (st || []).map((s) => ({ ...s, balance: bal[s.id] || 0 }));
+  STUDENTS = (st || []).map((s) => ({
+    ...s, balance: Object.prototype.hasOwnProperty.call(bal, s.id) ? bal[s.id] : null,
+  }));
 
   const opts = STUDENTS.map((s) =>
     `<option value="${s.id}">${esc(s.student_no)}　${esc(s.full_name)}</option>`).join("");
@@ -236,7 +249,12 @@ function visibleStudents() {
 function renderStudents() {
   const rows = visibleStudents();
   $("students").innerHTML = rows.map((s) => {
-    const low = s.balance < 500;
+    const b = s.balance;
+    // "欠 NT$260" rather than "NT$-260": the manager reads it as something to
+    // collect, not as a number to mentally re-sign. Matches the parent wording.
+    const balHtml = b === null ? ""
+      : b < 0 ? `<span class="bal neg">欠 ${money(-b)}</span>`
+      : `<span class="bal ${b < 500 ? "low" : "ok"}">${money(b)}</span>`;
     if (DONE.has(s.id)) {
       return `<div class="st done"><span class="nm">${esc(s.full_name)}</span> ` +
         `<span class="no">${esc(s.student_no)}</span><span class="tick">已登記</span></div>`;
@@ -244,7 +262,7 @@ function renderStudents() {
     return `<label class="st"><input type="checkbox" data-sid="${s.id}">` +
       `<span><span class="nm">${esc(s.full_name)}</span> ` +
       `<span class="no">${esc(s.student_no)}</span></span>` +
-      `<span class="bal${low ? " low" : ""}">${money(s.balance)}</span></label>`;
+      balHtml + "</label>";
   }).join("");
   $("students").oninput = updateTotal;
   updateTotal();
