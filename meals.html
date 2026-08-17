@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>家偉補習班 · 餐費</title>
+<!-- 餐費 — the daily 便當 tally + 預繳, over meal_ledger (migration 20260817000006).
+
+     HOW THE SCHOOL ACTUALLY WORKS (Patty, 2026-08-17): every day the front-desk
+     manager tallies who wants a 便當 and inputs it, ordering from a DIFFERENT
+     VENDOR most days — so the price changes almost daily. Parents pre-pay a
+     lump sum and it draws down.
+
+     Hence the shape of this page: one date, one price for that day, tick the
+     students. The price is typed per day rather than configured, and it is
+     stamped onto each row so a later price change never rewrites what a parent
+     was already charged.
+
+     ⚠️ THE LEDGER IS IMMUTABLE — void and re-enter, never edit (same doctrine as
+     the tuition ledger). A mistallied day is voided row-by-row and re-submitted;
+     the DB refuses an un-void outright.
+
+     A partial unique index means submitting the same day twice CANNOT double-
+     charge: the second insert fails. This page reads the day first and shows
+     already-recorded students as locked, so the manager sees it before trying.
+
+     Roles: owner + 主任 only (收費 is front-desk work; teachers see no 餐費). -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="sb.js"></script>
+<script>window.PAGE_ROLES = ["owner", "admin"];</script>
+<script src="auth.js"></script>
+<style>
+:root {
+  --brand: #2547c7; --orange: #ef5226; --gold: #f8c414; --ok: #1f7a4d;
+  --bg: #f6f7fb; --surface: #fff; --ink: #1b1f2a; --muted: #6b7280; --line: #e3e6ee;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); line-height: 1.6;
+  font-family: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 20px 16px 64px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+.sub { color: var(--muted); font-size: 13px; margin: 0 0 18px; }
+.sub a { color: var(--brand); }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 16px; margin-bottom: 14px; }
+h2 { font-size: 15px; margin: 0 0 12px; padding-left: 8px; border-left: 3px solid var(--brand); }
+.bar { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 12px; }
+.fl { display: flex; flex-direction: column; gap: 3px; }
+.fl label { font-size: 12px; color: var(--muted); }
+input, select { font: inherit; padding: 7px 9px; border: 1px solid var(--line);
+  border-radius: 8px; background: #fff; color: var(--ink); }
+input:focus, select:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
+button { font: inherit; font-weight: 700; border: 0; border-radius: 8px; padding: 8px 16px;
+  background: var(--brand); color: #fff; cursor: pointer; }
+button:disabled { opacity: .45; cursor: default; }
+button.ghost { background: #fff; border: 2px solid var(--brand); color: var(--brand); }
+button.danger { background: #fff; border: 2px solid var(--orange); color: var(--orange); }
+.msg { font-size: 13px; color: var(--muted); }
+.msg.err { color: var(--orange); font-weight: 700; }
+.msg.ok { color: var(--ok); font-weight: 700; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; }
+.st { display: flex; align-items: center; gap: 9px; border: 1px solid var(--line);
+  border-radius: 9px; padding: 8px 10px; cursor: pointer; background: #fff; }
+.st:hover { border-color: var(--brand); }
+.st input { margin: 0; width: 17px; height: 17px; accent-color: var(--brand); }
+.st .nm { font-weight: 700; font-size: 14px; }
+.st .no { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.st .bal { margin-left: auto; font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 700; }
+.st .bal.low { color: var(--orange); }
+.st.done { background: #F3F6FF; border-color: #C9D5F7; cursor: default; }
+.st.done .tick { color: var(--brand); font-weight: 800; font-size: 12px; margin-left: auto; }
+.foot { display: flex; gap: 12px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
+.tot { font-weight: 800; font-variant-numeric: tabular-nums; }
+
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 700;
+  padding: 0 8px 6px; border-bottom: 1px solid var(--line); }
+td { padding: 7px 8px; border-bottom: 1px solid #f1f3f8; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+tr.void td { color: var(--muted); text-decoration: line-through; }
+.pill { font-size: 11px; font-weight: 700; border-radius: 999px; padding: 1px 8px; }
+.p-meal { background: #FEF6DA; color: #8A5A00; }
+.p-top { background: #E6F4EC; color: var(--ok); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>餐費</h1>
+  <p class="sub">每日便當登記與家長預繳。<a href="index.html">← 回後台</a>
+    　<span id="who"></span> <a href="#" id="btn-signout">登出</a></p>
+
+  <!-- ── 每日登記 ───────────────────────────────────────────── -->
+  <div class="card">
+    <h2>今日便當登記</h2>
+    <div class="bar">
+      <div class="fl"><label>日期</label><input type="date" id="day"></div>
+      <div class="fl"><label>今日單價 (NT$)</label>
+        <input type="number" id="price" min="1" max="100000" step="1" style="width:120px"></div>
+      <div class="fl"><label>店家（選填）</label>
+        <input type="text" id="vendor" maxlength="60" placeholder="例：阿婆便當" style="width:170px"></div>
+      <div class="fl"><label>班級篩選</label><select id="cls"></select></div>
+      <button class="ghost" type="button" id="reload">重新載入</button>
+      <span class="msg" id="loadmsg"></span>
+    </div>
+    <div class="grid" id="students"></div>
+    <div class="foot">
+      <button type="button" id="submit">登記選取的學生</button>
+      <span class="tot" id="tot"></span>
+      <span class="msg" id="savemsg"></span>
+    </div>
+  </div>
+
+  <!-- ── 預繳 ──────────────────────────────────────────────── -->
+  <div class="card">
+    <h2>家長預繳</h2>
+    <div class="bar">
+      <div class="fl"><label>學生</label><select id="tuStudent" style="min-width:200px"></select></div>
+      <div class="fl"><label>金額 (NT$)</label>
+        <input type="number" id="tuAmount" min="1" max="100000" step="1" style="width:120px"></div>
+      <div class="fl"><label>日期</label><input type="date" id="tuDay"></div>
+      <div class="fl"><label>備註（選填）</label>
+        <input type="text" id="tuNote" maxlength="200" style="width:180px"></div>
+      <button type="button" id="tuSave">登錄預繳</button>
+      <span class="msg" id="tumsg"></span>
+    </div>
+  </div>
+
+  <!-- ── 明細 ──────────────────────────────────────────────── -->
+  <div class="card">
+    <h2>最近紀錄</h2>
+    <div class="bar">
+      <div class="fl"><label>只看這位學生</label><select id="hStudent" style="min-width:200px"></select></div>
+      <span class="msg" id="hmsg"></span>
+    </div>
+    <table>
+      <thead><tr><th>日期</th><th>學生</th><th>項目</th><th class="num">金額</th><th></th></tr></thead>
+      <tbody id="hist"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const money = (n) => "NT$" + Number(n || 0).toLocaleString("en-US");
+// The DB is UTC; the school is not. Everything a human calls "today" is Taipei.
+const taipeiToday = () =>
+  new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+
+let STUDENTS = [];      // [{id, full_name, student_no, balance}]
+let CLASSES = [];
+let DONE = new Set();   // student_ids already recorded for the chosen day
+
+(async () => {
+  await window.authGate();
+  if (!window.CURRENT_USER_ROLE) return;
+  const ROLE_LABEL = { owner: "負責人", admin: "主任" };
+  $("btn-signout").addEventListener("click", window.signOut);
+  $("who").textContent =
+    `${window.CURRENT_USER.email} · ${ROLE_LABEL[window.CURRENT_USER_ROLE] || window.CURRENT_USER_ROLE}`;
+
+  $("day").value = taipeiToday();
+  $("tuDay").value = taipeiToday();
+
+  const { data: cls } = await window.sb.from("classes")
+    .select("id, name").eq("active", true).order("name");
+  CLASSES = cls || [];
+  $("cls").innerHTML = '<option value="">全部學生</option>' +
+    CLASSES.map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
+
+  await loadStudents();
+  await loadDay();
+  await loadHistory();
+
+  $("reload").onclick = async () => { await loadDay(); };
+  $("day").onchange = loadDay;
+  $("cls").onchange = renderStudents;
+  $("submit").onclick = submitDay;
+  $("tuSave").onclick = saveTopup;
+  $("hStudent").onchange = loadHistory;
+})();
+
+async function loadStudents() {
+  const { data: st, error } = await window.sb.from("students")
+    .select("id, full_name, student_no, active")
+    .eq("active", true).order("student_no");
+  if (error) { $("loadmsg").className = "msg err"; $("loadmsg").textContent = error.message; return; }
+
+  // balances: one pass over the ledger, summed here rather than per student
+  const { data: led } = await window.sb.from("meal_ledger")
+    .select("student_id, kind, amount").eq("voided", false);
+  const bal = {};
+  (led || []).forEach((r) => {
+    bal[r.student_id] = (bal[r.student_id] || 0) + (r.kind === "topup" ? r.amount : -r.amount);
+  });
+  STUDENTS = (st || []).map((s) => ({ ...s, balance: bal[s.id] || 0 }));
+
+  const opts = STUDENTS.map((s) =>
+    `<option value="${s.id}">${esc(s.student_no)}　${esc(s.full_name)}</option>`).join("");
+  $("tuStudent").innerHTML = opts;
+  $("hStudent").innerHTML = '<option value="">全部</option>' + opts;
+
+  const { data: enr } = await window.sb.from("enrollments")
+    .select("student_id, class_id").eq("active", true);
+  window.ENROLL = enr || [];
+}
+
+/** Read the chosen day FIRST, so students already recorded show as locked
+ *  rather than failing on submit against the unique index. */
+async function loadDay() {
+  const day = $("day").value;
+  DONE = new Set();
+  if (!day) return;
+  const { data, error } = await window.sb.from("meal_ledger")
+    .select("student_id").eq("occurred_on", day).eq("kind", "meal").eq("voided", false);
+  if (error) { $("loadmsg").className = "msg err"; $("loadmsg").textContent = error.message; return; }
+  (data || []).forEach((r) => DONE.add(r.student_id));
+  $("loadmsg").className = "msg";
+  $("loadmsg").textContent = DONE.size ? `這天已登記 ${DONE.size} 位` : "這天尚未登記";
+  renderStudents();
+}
+
+function visibleStudents() {
+  const cid = $("cls").value;
+  if (!cid) return STUDENTS;
+  const ids = new Set((window.ENROLL || []).filter((e) => e.class_id === cid).map((e) => e.student_id));
+  return STUDENTS.filter((s) => ids.has(s.id));
+}
+
+function renderStudents() {
+  const rows = visibleStudents();
+  $("students").innerHTML = rows.map((s) => {
+    const low = s.balance < 500;
+    if (DONE.has(s.id)) {
+      return `<div class="st done"><span class="nm">${esc(s.full_name)}</span> ` +
+        `<span class="no">${esc(s.student_no)}</span><span class="tick">已登記</span></div>`;
+    }
+    return `<label class="st"><input type="checkbox" data-sid="${s.id}">` +
+      `<span><span class="nm">${esc(s.full_name)}</span> ` +
+      `<span class="no">${esc(s.student_no)}</span></span>` +
+      `<span class="bal${low ? " low" : ""}">${money(s.balance)}</span></label>`;
+  }).join("");
+  $("students").oninput = updateTotal;
+  updateTotal();
+}
+
+function picked() {
+  return [...$("students").querySelectorAll("input[type=checkbox]:checked")]
+    .map((el) => el.dataset.sid);
+}
+
+function updateTotal() {
+  const n = picked().length;
+  const p = Number($("price").value || 0);
+  $("tot").textContent = n ? `${n} 位 × ${money(p)} = ${money(n * p)}` : "";
+}
+
+async function submitDay() {
+  const day = $("day").value;
+  const price = Number($("price").value || 0);
+  const vendor = $("vendor").value.trim() || null;
+  const ids = picked();
+  const m = $("savemsg");
+  m.className = "msg";
+  if (!day || !price || price < 1) { m.className = "msg err"; m.textContent = "請填日期與單價。"; return; }
+  if (!ids.length) { m.className = "msg err"; m.textContent = "沒有選取任何學生。"; return; }
+
+  $("submit").disabled = true;
+  m.textContent = "登記中…";
+  // 🔑 EVERY ROW MUST CARRY THE SAME KEYS. supabase-js unions the keys across a
+  // batch and sends an explicit NULL for any a row omits, which defeats the
+  // column DEFAULT — a row missing `voided` fails its NOT-NULL. Here the shape is
+  // uniform by construction; keep it that way if a per-student field is added.
+  const rows = ids.map((sid) => ({
+    student_id: sid, occurred_on: day, kind: "meal", amount: price, vendor,
+  }));
+  const { error } = await window.sb.from("meal_ledger").insert(rows);
+  $("submit").disabled = false;
+  if (error) {
+    m.className = "msg err";
+    // 23505 = the partial unique index: someone already recorded one of these
+    m.textContent = error.code === "23505"
+      ? "有學生今天已經登記過了，請按「重新載入」後再試。"
+      : error.message;
+    return;
+  }
+  m.className = "msg ok";
+  m.textContent = `已登記 ${rows.length} 位，共 ${money(rows.length * price)}。`;
+  await loadStudents();
+  await loadDay();
+  await loadHistory();
+}
+
+async function saveTopup() {
+  const m = $("tumsg");
+  const amount = Number($("tuAmount").value || 0);
+  m.className = "msg";
+  if (!amount || amount < 1) { m.className = "msg err"; m.textContent = "請填金額。"; return; }
+  const { error } = await window.sb.from("meal_ledger").insert({
+    student_id: $("tuStudent").value,
+    occurred_on: $("tuDay").value || taipeiToday(),
+    kind: "topup", amount, note: $("tuNote").value.trim() || null,
+  });
+  if (error) { m.className = "msg err"; m.textContent = error.message; return; }
+  m.className = "msg ok";
+  m.textContent = `已登錄 ${money(amount)}。`;
+  $("tuAmount").value = ""; $("tuNote").value = "";
+  await loadStudents(); await loadHistory(); renderStudents();
+}
+
+async function loadHistory() {
+  let q = window.sb.from("meal_ledger")
+    .select("id, student_id, occurred_on, kind, amount, vendor, note, voided")
+    .order("occurred_on", { ascending: false }).limit(120);
+  const sid = $("hStudent").value;
+  if (sid) q = q.eq("student_id", sid);
+  const { data, error } = await q;
+  if (error) { $("hmsg").className = "msg err"; $("hmsg").textContent = error.message; return; }
+  const byId = Object.fromEntries(STUDENTS.map((s) => [s.id, s]));
+  $("hist").innerHTML = (data || []).map((r) => {
+    const s = byId[r.student_id];
+    const label = r.kind === "topup"
+      ? '<span class="pill p-top">預繳</span>'
+      : `<span class="pill p-meal">便當</span> ${esc(r.vendor || "")}`;
+    return `<tr class="${r.voided ? "void" : ""}"><td>${esc(r.occurred_on)}</td>` +
+      `<td>${esc(s ? s.full_name : "—")}</td><td>${label}</td>` +
+      `<td class="num">${r.kind === "topup" ? "+" : "−"}${money(r.amount)}</td>` +
+      `<td>${r.voided ? '<span class="msg">已作廢</span>'
+        : `<button class="danger" type="button" data-void="${r.id}">作廢</button>`}</td></tr>`;
+  }).join("");
+  $("hist").onclick = async (ev) => {
+    const id = ev.target?.dataset?.void;
+    if (!id) return;
+    const why = prompt("作廢原因？（記錄用，不可修改，只能作廢後重開）");
+    if (why === null) return;
+    const { error } = await window.sb.from("meal_ledger")
+      .update({ voided: true, void_reason: why || null }).eq("id", id);
+    if (error) { alert(error.message); return; }
+    await loadStudents(); await loadDay(); await loadHistory();
+  };
+}
+</script>
+</body>
+</html>
