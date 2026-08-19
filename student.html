@@ -131,8 +131,23 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
    to what goes in them and grouped under three quiet headings (基本 / 聯絡 /
    修習班級). The guardian block is a real grid with ONE set of column
    headers instead of a placeholder repeated on every input. */
-#editor { max-width: 820px; }
-#editor h2 { margin-bottom: 14px; }
+#editor { width: min(860px, 94vw); max-height: 88vh; padding: 0; border: 0;
+  border-radius: 12px; background: var(--surface); color: var(--ink);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .25); overflow: hidden; }
+#editor[open] { display: flex; flex-direction: column; }
+#editor::backdrop { background: rgba(30, 25, 15, .45); }
+.mhead { display: flex; align-items: center; gap: 10px; flex: none;
+  padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.mhead b { font-size: 15px; }
+.mhead .meta { color: var(--muted); font-size: 12px; flex: 1;
+  font-variant-numeric: tabular-nums; }
+.mhead .x { background: transparent; color: var(--muted); font-size: 15px; padding: 2px 9px; }
+.mhead .x:hover { color: var(--ink); }
+.mbody { padding: 16px; overflow-y: auto; flex: 1; }
+.mbody .fgroup:last-child { margin-bottom: 0; }
+.bindout { flex: none; font-size: 13px; color: var(--muted); }
+.bindout:not(:empty) { padding: 10px 16px; border-top: 1px solid var(--line);
+  background: #fbfcff; }
 .fgroup { margin-bottom: 16px; }
 .fgroup > .legend { font-size: 11px; font-weight: 700; color: var(--muted);
   letter-spacing: .05em; margin-bottom: 7px; }
@@ -173,9 +188,10 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   color: var(--brand); font-weight: 700; }
 .subjbox input { accent-color: var(--brand); margin: 0; }
 
-.actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
-  border-top: 1px solid var(--line); padding-top: 13px; }
-.actions .push { margin-left: auto; }
+.mfoot { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; flex: none;
+  padding: 12px 16px; border-top: 1px solid var(--line); }
+.mfoot .push { margin-left: auto; }
+.mfoot .msg { flex: 1; }
 button.ghost { background: #fff; border: 1px solid var(--line); color: var(--ink); }
 button.ghost:hover { border-color: #c9cee0; }
 /* 停用 — present, not shouting. It was a 2px orange outline competing with 儲存
@@ -201,7 +217,6 @@ button.quiet:hover { text-decoration: underline; }
   </div>
 
   <div id="body" hidden>
-    <div class="card" id="editor" hidden></div>
     <div class="hdr" id="hdr"></div>
     <div class="kpis" id="kpis"></div>
 
@@ -239,6 +254,8 @@ button.quiet:hover { text-decoration: underline; }
       </div>
     </div>
   </div>
+
+  <dialog id="editor" aria-labelledby="f-title"></dialog>
 </div>
 
 <script>
@@ -325,7 +342,7 @@ async function load(id) {
 }
 
 async function loadBasic() {
-  $("editor").hidden = true;
+  $("editor").close();
   const { data: s } = await window.sb.from("students")
     .select("id, full_name, student_no, grade, school, note, active, father_name, father_phone, " +
             "mother_name, mother_phone, home_phone, other_contact, father_line, mother_line")
@@ -507,10 +524,14 @@ async function openEdit(s) {
   const subj = grade ? gradeSubjectClasses(grade) : [];
   const has = s ? studentClassIds(s.id) : new Set(newCls ? [newCls.id] : []);
   const box = $("editor");
-  box.hidden = false;
-  $("body").hidden = false;
+  if (!box.open) box.showModal();
   box.innerHTML = `
-    <h2>${s ? "編輯學生資料" : "新增學生"}</h2>
+    <div class="mhead">
+      <b id="f-title">${s ? "✏️ 編輯學生資料" : "＋ 新增學生"}</b>
+      <span class="meta">${s ? esc(s.student_no || "") + "　" + esc(s.full_name || "") : ""}</span>
+      <button type="button" class="x" id="f-close" aria-label="關閉">✕</button>
+    </div>
+    <div class="mbody">
     <div class="fgroup">
       <div class="legend">基本資料</div>
       <div class="frow">
@@ -553,26 +574,25 @@ async function openEdit(s) {
       <div class="subjbox">${subj.map((c) =>
         `<label><input type="checkbox" data-subj="${c.id}" ${has.has(c.id) ? "checked" : ""}>${esc(c.name)}</label>`).join("")}</div>
     </div>` : ""}
-    <div class="actions">
-      <button type="button" id="f-save">${s ? "儲存" : "建立學生"}</button>
-      <button type="button" class="ghost" id="f-cancel">取消</button>
-      <span class="msg" id="f-msg"></span>
-      ${s ? `<button type="button" class="ghost push" id="f-bind">產生家長綁定碼</button>` : ""}
-      ${s ? `<button type="button" class="quiet" id="f-toggle">${s.active ? "停用" : "啟用"}</button>` : ""}
     </div>
-    <div class="msg" id="f-bindout" style="margin-top:8px"></div>`;
+    <div class="bindout msg" id="f-bindout"></div>
+    <div class="mfoot">
+      ${s ? `<button type="button" class="quiet" id="f-toggle">${s.active ? "停用" : "啟用"}</button>` : ""}
+      ${s ? `<button type="button" class="ghost" id="f-bind">產生家長綁定碼</button>` : ""}
+      <span class="msg" id="f-msg"></span>
+      <button type="button" class="ghost push" id="f-cancel">取消</button>
+      <button type="button" id="f-save">${s ? "儲存" : "建立學生"}</button>
+    </div>`;
 
-  $("f-cancel").onclick = () => {
-    box.hidden = true;
-    if (!SID) $("body").hidden = true;
-  };
+  $("f-cancel").onclick = () => box.close();
+  $("f-close").onclick = () => box.close();
   $("f-save").onclick = () => saveStudent(s);
   if (s) {
     $("f-toggle").onclick = async () => {
       const { error } = await window.sb.from("students")
         .update({ active: !s.active }).eq("id", s.id);
       if (error) { $("f-msg").className = "msg err"; $("f-msg").textContent = error.message; return; }
-      box.hidden = true; CLASSES = []; ENROLL = []; load(s.id);
+      box.close(); CLASSES = []; ENROLL = []; load(s.id);
     };
     // 家長綁定碼 — parent_link_codes (migration 20260806000003). 14 天有效、父母各
     // 一次 (max_uses 2). 32-char alphabet with no 0/O/1/I divides 256 evenly → no
@@ -584,8 +604,8 @@ async function openEdit(s) {
       const code = [...buf].map((b) => chars[b % chars.length]).join("");
       const { error } = await window.sb.from("parent_link_codes")
         .insert({ code, student_id: s.id });
-      if (error) { $("f-bindout").className = "msg err"; $("f-bindout").textContent = error.message; return; }
-      $("f-bindout").className = "msg";
+      if (error) { $("f-bindout").className = "bindout msg err"; $("f-bindout").textContent = error.message; return; }
+      $("f-bindout").className = "bindout msg";
       $("f-bindout").innerHTML = `家長綁定碼：<b style="font-size:17px;letter-spacing:.2em">${code}</b>` +
         `（14 天內有效，父母各可使用一次）抄給家長 → 官網「家長專區」→ LINE 登入 → 輸入此碼。`;
     };
@@ -618,7 +638,7 @@ async function saveStudent(s) {
     }
     await syncSubjects(id);
     CLASSES = []; ENROLL = [];            // force a refetch so chips reflect the save
-    $("editor").hidden = true;
+    $("editor").close();
     location.href = `student.html?id=${id}`;
   } catch (e) {
     m.className = "msg err"; m.textContent = e.message || String(e);
