@@ -5,7 +5,7 @@ Static admin surface for 家偉補習班 — **https://admin.chiaweiedu.com**
 Deployed by **GitHub Pages** from `main` / root. Mirrors how `pattyhsu/backstage`
 serves backstage.dottyhomes.com.
 
-Thirteen tools, across three staff tiers — **負責人 / 主任 / 老師** (see [Roles](#roles-who-sees-what)).
+Fourteen tools, across three staff tiers — **負責人 / 主任 / 老師** (see [Roles](#roles-who-sees-what)).
 
 > **Why these live here and the 出題台 does not.** This site is the surface Patty
 > can reach from anywhere — a phone, another computer. The teacher web app
@@ -20,12 +20,15 @@ Thirteen tools, across three staff tiers — **負責人 / 主任 / 老師** (se
 | `index.html` | **Launcher** — four groups, each its own column; cards filter by role (`data-roles`) and empty groups hide themselves. | all staff |
 | `receipt.html` | **GENERATED — do not edit by hand.** 收據產生器 + 記帳並列印. | 負責人 · 主任 |
 | `tuition.html` | 收費台 — 未繳 / 收費紀錄 / 期別與費用. **hand-written**. | 負責人 · 主任 |
+| `meals.html` | 餐費 — the daily 便當 tally + 預繳 drawdown. Immutable ledger. **hand-written**. | 負責人 · 主任 |
 | `reports.html` | 收費總覽 — the financial roll-up. **hand-written**. | **負責人 only** |
 | `leads.html` | 諮詢名單 (官網 form submissions). **hand-written**. Personal data. | 負責人 · 主任 |
 | `content.html` | The 內容行銷台 — **hand-written**, edit it here. | 負責人 · 主任 |
 | `offerings.html` | 開課資訊台 — rows with `status='open'` are PUBLIC. **hand-written**. | 負責人 · 主任 |
 | `teachers.html` | 老師帳號 — mints credentials via the `teacher-create` fn. **hand-written**. | 負責人 · 主任 |
-| `roster.html` | 名冊 (班級 × 學生 × 任教老師). **hand-written**. **Minors' PII.** | 負責人 · 主任 · 老師 (唯讀, own classes) |
+| `classes.html` | 班級 (班級設定 × 在班學生 × 任教老師). **hand-written**. **Minors' PII.** | 負責人 · 主任 · 老師 (唯讀, own classes) |
+| `student.html` | 學生總覽 — one page per student: 學習進度 / 學費 / 餐費 / 聯絡方式, and the only 學生資料 edit form. **hand-written**. **Minors' PII.** | 負責人 · 主任 · 老師 (own students; no 學費/餐費/聯絡方式, no 編輯) |
+| `roster.html` | Redirect stub only — 名冊 became 班級 on 2026-08-18. Keeps old bookmarks off a 404; deletable once nobody uses the URL. | — |
 | `schedule.html` | 課表 (頭份 weekly timetable, hardcoded per semester). **hand-written**. | all staff |
 | `journal.html` | 老師日誌 — one entry per class per day. **hand-written**. | all staff |
 | `rollcall.html` | 點名單 — printable roll-call sheet, writes nothing. **hand-written**. | all staff |
@@ -186,7 +189,7 @@ not because of `auth.js`. So: **never put anything secret in this repo** (the
 `service_role` key is server-only and lives in `chiawei/.env`), and never add a page
 that ships data in its markup rather than fetching it under the user's own session.
 
-⚠️⚠️ **`roster.html` goes further: it is the school's student PII** — 姓名, 學號,
+⚠️⚠️ **`classes.html` / `student.html` go further: they are the school's student PII** — 姓名, 學號,
 就讀學校, 家長姓名, 家長電話 — on a public URL, with RLS as the entire boundary. That
 was an explicit owner decision (2026-07-28), taken with the trade-off stated: a
 stolen owner password exposes minors' data from anywhere, rather than requiring
@@ -210,7 +213,7 @@ entirely: reads returned 0 rows, `INSERT` raised `42501`, `UPDATE`/`DELETE` affe
 0 rows. If you add another page here that touches student data, re-prove the same —
 do not lean on the gate.
 
-Since 2026-08-12 teachers are admitted to `roster.html` **read-only** — RLS
+Since 2026-08-12 teachers are admitted to 班級/學生總覽 **read-only** — RLS
 (`20260611000009`) already scoped their reads to their own classes and denied their
 writes; the page's RO branch just stops offering saves that would silently no-op.
 
