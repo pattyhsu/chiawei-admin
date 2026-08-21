@@ -86,9 +86,23 @@ photo, or browse the photo bucket.
 
 ## 內容行銷台 (`content.html`)
 
-Three tabs: **佇列** (review/approve/download the day's drafts, mark them posted),
-**文案庫** (approve pre-authored evergreen copy — only 已審核 rows ever ship),
-**新貼文** (compose a dated post by hand, or upload a photo).
+A **left menu, one entry per category**, because the categories *are* the work —
+each owns its own stock and its own rotation day. Three groups:
+
+- **佇列** — review/approve/download the day's drafts, mark them posted. Leads with
+  the 一週輪值 strip; each day links to that pillar's stock.
+- **文案庫 · 自動輪值** — one entry per pillar, badged with how many 已審核 rows are
+  left (red at zero). Clicking one opens just that pillar's stock.
+- **新貼文 · 手動** — one entry per composed type; clicking one opens its form
+  directly, so there is no 類型 dropdown to get wrong.
+
+Views are addressed by hash (`#queue`, `#bank/<kind>`, `#new/<type>`), so a reload,
+a bookmark or the back button all land where you were; an unknown hash falls back
+to the queue.
+
+The old three-tab layout hid the thing that matters most: a pillar can sit on a
+pile of 待審核 copy and still post **nothing**, because only 已審核 rows ship. Each
+pillar's page now says so outright when that's the case.
 
 ### The categories, and where each one is made
 
