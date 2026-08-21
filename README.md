@@ -87,8 +87,49 @@ photo, or browse the photo bucket.
 ## 內容行銷台 (`content.html`)
 
 Three tabs: **佇列** (review/approve/download the day's drafts, mark them posted),
-**文案庫** (approve pre-authored 學習技巧／會考情報 copy — only 已審核 rows ever
-ship), **新貼文** (compose 榜單／活動／見證／躍升卡 by hand, or upload a 圖片貼文).
+**文案庫** (approve pre-authored evergreen copy — only 已審核 rows ever ship),
+**新貼文** (compose a dated post by hand, or upload a photo).
+
+### The categories, and where each one is made
+
+Two kinds of category, split by *who makes it*:
+
+**文案庫 (evergreen, written ahead, posted automatically).** Five pillars, each
+owning one weekday. The morning cron pops the oldest 已審核 row of that day's kind
+and turns it into a card. **No stock for that kind = nothing posts that day** — not
+an error, just silence, which is why the 佇列 tab leads with a 一週輪值 strip
+showing each day's remaining stock.
+
+| 週 | 類別 | `kind` | 對象 |
+|---|---|---|---|
+| 一 | 學習技巧 | `tip` | 學生 |
+| 二 | 會考情報 | `exam_info` | 家長 |
+| 三 | 本週一題 | `quiz` | 學生（答案在留言區 — the one pillar that earns replies） |
+| 四 | 家長小提醒 | `parent_tip` | 家長 |
+| 五 | 這週@家偉 | — | 手動，要照片 |
+| 六 | — | — | 休息 |
+| 日 | 雞湯 | `pep` | 學生 |
+
+Restock with `/author-content` in Claude Code (the `chiawei` repo), which drafts a
+batch into `content_bank` as 待審核.
+
+**新貼文 (dated, event-driven, composed by hand).** 開課資訊 · 公告 · 活動 ·
+老師介紹 · 榜單 · 家長見證 · 學生見證 · 躍升卡 · 這週@家偉 · 圖片貼文.
+
+- **開課資訊** pre-fills from `class_offerings` — the same rows `offerings.html`
+  edits, so 招生 copy can't drift from what the 官網 and 家長專區 advertise. 報名截止
+  gets the heaviest position on the card; it's the line a family can actually miss.
+- **公告** (停課／補課／放假／繳費) is the cheapest post to make and the one parents
+  go looking for. No student data ever reaches it.
+- **老師介紹** is text-only — staff are adults, so no 個資法 gate, but write the
+  學經歷 the teacher agreed to publish. Want a face? Use 圖片貼文.
+- **這週@家偉** and **圖片貼文** are photo uploads: the image *is* the post, so they
+  skip the renderer entirely. Both are behind the 個資法 gate — a photo of the week
+  at the school can have identifiable students in it.
+
+The rotation lives in exactly two places and they must agree: `ROTATION` in
+`content.html` (what Patty sees) and `PILLARS` in
+`chiawei/web/scripts/content/generate-daily.ts` (what actually runs).
 
 ### Where illustrations come from
 
@@ -103,8 +144,8 @@ key): it applies the Brand Kit, renders 中文 correctly — which raw image mod
 not — and exports a PNG. ChatGPT's image generation works too, and a plain photo is
 just a file.
 
-An `image_post` is created with `image_keys` already set, so it never enters the
-render path: no card template, no Chromium, no 2–3 min wait.
+An `image_post` (and a `weekly`) is created with `image_keys` already set, so it
+never enters the render path: no card template, no Chromium, no 2–3 min wait.
 
 **It has no server.** Reads and writes go straight to Supabase under the anon key,
 governed by RLS. Card PNGs live in the private `content-cards` Storage bucket and

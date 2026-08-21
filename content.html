@@ -129,9 +129,25 @@ label.fld.grow { flex: 1; min-width: 140px; }
 }
 .chk { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); }
 .chk input { width: auto; }
+/* 一週輪值 strip — the drumbeat, with each day's 文案庫 stock underneath, so a
+   silent day is visible BEFORE it happens rather than as a gap in the queue. */
+.rota { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin: 0 0 20px; }
+.rota .d {
+  border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+  padding: 8px 9px; min-width: 0;
+}
+.rota .d.today { border-color: var(--brand); box-shadow: 0 0 0 2px #eef1fc; }
+.rota .d.rest { background: #fafbfd; }
+.rota .dow { font-size: 11px; font-weight: 700; color: var(--muted); }
+.rota .d.today .dow { color: var(--brand); }
+.rota .cat { font-size: 13px; font-weight: 700; margin-top: 2px; line-height: 1.35; }
+.rota .src { display: block; font-size: 11px; margin-top: 5px; color: var(--muted); }
+.rota .src.out { color: var(--danger); font-weight: 700; }
+.rota .src.manual { color: var(--brand-orange); font-weight: 700; }
 .hide { display: none !important; }
 .empty { color: var(--muted); font-size: 14px; margin-top: 30px; line-height: 1.7; }
 @media (max-width: 640px) {
+  .rota { grid-template-columns: repeat(4, 1fr); }
   .item { flex-direction: column; }
   .thumb, .thumb.pending { width: 100%; height: auto; aspect-ratio: 1; flex: none; }
 }
@@ -159,6 +175,7 @@ label.fld.grow { flex: 1; min-width: 140px; }
       每天早上自動產生的貼文草稿會出現在這裡。預覽 → 改文案 → 核准 → 下載圖片、
       複製文案 → 貼到 FB / IG / LINE → 回來按「標記已發布」。
     </p>
+    <div class="rota" id="rota"></div>
     <div id="queue"></div>
   </section>
 
@@ -167,10 +184,11 @@ label.fld.grow { flex: 1; min-width: 140px; }
     <h2>文案庫</h2>
     <p class="muted">
       這裡是<b>存貨</b>，不是貼文。按「審核通過」不會馬上出現在佇列 ——
-      它只是排進待發清單；每天早上排程<b>挑一則</b>做成卡片放到佇列：
-      <b>學習技巧＝週一／四</b>、<b>會考情報＝週二</b>。<br>
+      它只是排進待發清單；每天早上排程照<b>一週輪值</b>（佇列頁上方那排）
+      <b>挑一則</b>做成卡片放到佇列。<br>
       沒有「已審核」存貨的那天就<b>不發文</b>（不會報錯，就是跳過）——
       所以這裡審核多少，就決定了社群能連續發多久。
+      補存貨請在 Claude Code 跑 <code>/author-content</code>。
     </p>
     <p class="muted" id="bank-stock"></p>
     <div id="bank"></div>
@@ -181,7 +199,10 @@ label.fld.grow { flex: 1; min-width: 140px; }
     <h2>新貼文</h2>
     <p class="muted">
       建立後卡片由伺服器產生，大約 2–3 分鐘後出現在佇列裡（這台是靜態網頁，畫不了圖）。
-      真實學生資料（榜單／見證／躍升卡）必須填家長書面同意編號，或勾選「示意資料」。
+      有<b>真實學生</b>的內容（榜單／見證／躍升卡／這週@家偉／圖片貼文）必須填家長書面同意編號，
+      或勾選「示意資料」。<br>
+      輪值的五個主題（學習技巧／會考情報／本週一題／家長小提醒／雞湯）不在這裡建
+      —— 那些寫在<b>文案庫</b>，由排程自動挑。
     </p>
     <div id="compose"></div>
   </section>
@@ -190,25 +211,102 @@ label.fld.grow { flex: 1; min-width: 140px; }
 <script>
 // ── constants ───────────────────────────────────────────────────────────────
 const BUCKET = "content-cards";
+// Key order is the 新貼文 dropdown order, so the composable types are grouped:
+// 招生／公告 first (what gets made most often), then the 真實學生 ones, then media.
 const TYPE_LABEL = {
-  tip: "學習技巧", exam_info: "會考情報", honor_roll: "榜單", event: "活動",
-  testimonial_parent: "家長見證", testimonial_student: "學生見證", leap_card: "躍升卡",
-  image_post: "圖片貼文",
+  tip: "學習技巧", exam_info: "會考情報", quiz: "本週一題",
+  parent_tip: "家長小提醒", pep: "雞湯",
+  offering: "開課資訊", notice: "公告", event: "活動", teacher: "老師介紹",
+  honor_roll: "榜單", testimonial_parent: "家長見證",
+  testimonial_student: "學生見證", leap_card: "躍升卡",
+  weekly: "這週@家偉", image_post: "圖片貼文",
 };
 const STATUS_LABEL = { draft: "草稿", approved: "已核准", posted: "已發布", rejected: "已退回" };
-const BANK_KIND = { tip: "學習技巧", exam_info: "會考情報" };
+// The five evergreen pillars — written ahead in 文案庫, popped by the morning
+// schedule. Mirrors content_bank_kind_check (migration 20260821000001).
+const BANK_KIND = {
+  tip: "學習技巧", exam_info: "會考情報", quiz: "本週一題",
+  parent_tip: "家長小提醒", pep: "雞湯",
+};
 const BANK_STATUS = { draft: "待審核", reviewed: "已審核", used: "已使用" };
+
+// ── 一週輪值 ────────────────────────────────────────────────────────────────
+// The drumbeat, and the ONLY place this page states it. Must stay in lockstep
+// with PILLARS in chiawei/web/scripts/content/generate-daily.ts — that map is
+// what actually runs; this one is what Patty sees.
+//   kind   → 排程自動從文案庫挑一則（沒存貨就跳過那天）
+//   manual → 沒人建就不會有（這週@家偉 要照片，排程畫不出來）
+const ROTATION = [
+  { dow: 1, day: "一", kind: "tip" },
+  { dow: 2, day: "二", kind: "exam_info" },
+  { dow: 3, day: "三", kind: "quiz" },
+  { dow: 4, day: "四", kind: "parent_tip" },
+  { dow: 5, day: "五", manual: "weekly" },
+  { dow: 6, day: "六", rest: true },
+  { dow: 0, day: "日", kind: "pep" },
+];
+/** 週一／四 … — which days a bank kind can ship on ("" = not in the rotation). */
+const shipsOn = (kind) =>
+  ROTATION.filter((r) => r.kind === kind).map((r) => `週${r.day}`).join("／");
+
+// Types whose picture IS the post: the row is inserted with image_keys already
+// set, so the render trigger never fires and no card is drawn. weekly joins
+// image_post here — 這週@家偉 is a photo of the week, not a rendered template.
+const UPLOAD_TYPES = ["image_post", "weekly"];
 // 個資法 gate — mirrors the content_consent_required CHECK constraint. The DB is
 // the real enforcement; this only decides whether the UI shows the consent block.
-// image_post is here because an uploaded photo may have real students in it.
-const PII_TYPES = ["honor_roll", "testimonial_parent", "testimonial_student", "leap_card", "image_post"];
+// image_post and weekly are here because an uploaded photo may have real
+// students in it — 開課資訊/公告/老師介紹 carry course and staff data only.
+const PII_TYPES = ["honor_roll", "testimonial_parent", "testimonial_student",
+  "leap_card", "image_post", "weekly"];
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const todayTaipei = () =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(new Date());
 
+/** Weekday (0=Sun) of today in Asia/Taipei — never the browser's timezone. */
+const todayDow = () => {
+  const [y, m, d] = todayTaipei().split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+};
+
+/** "2026-09-02" → "9/2（三）" — how a date reads on a card, not ISO. */
+function twDate(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-").map(Number);
+  return `${m}/${d}（${"日一二三四五六"[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]}）`;
+}
+
 let ITEMS = [], BANK = [], POLL = null;
+
+/** The 一週輪值 strip. Each day shows its pillar and how much reviewed stock is
+ *  left for it — a day with none posts NOTHING, and that has to be visible here
+ *  rather than discovered as a hole in the queue a week later. */
+function renderRotation() {
+  const dow = todayDow();
+  const stock = (k) => BANK.filter((b) => b.kind === k && b.status === "reviewed").length;
+  document.getElementById("rota").innerHTML = ROTATION.map((r) => {
+    let cat, src;
+    if (r.kind) {
+      const n = stock(r.kind);
+      cat = BANK_KIND[r.kind];
+      src = n
+        ? `<span class="src">存貨 ${n} 則</span>`
+        : `<span class="src out">缺稿 · 不發</span>`;
+    } else if (r.manual) {
+      cat = TYPE_LABEL[r.manual];
+      src = `<span class="src manual">手動建立</span>`;
+    } else {
+      cat = "—";
+      src = `<span class="src">休息</span>`;
+    }
+    return `<div class="d${r.dow === dow ? " today" : ""}${r.rest ? " rest" : ""}">
+      <span class="dow">週${r.day}${r.dow === dow ? " · 今天" : ""}</span>
+      <div class="cat">${esc(cat)}</div>${src}
+    </div>`;
+  }).join("");
+}
 
 // ── tabs ────────────────────────────────────────────────────────────────────
 document.querySelectorAll("nav button").forEach((b) => {
@@ -236,7 +334,7 @@ async function renderQueue() {
   const el = document.getElementById("queue");
   if (!ITEMS.length) {
     el.innerHTML = `<p class="empty">目前沒有貼文草稿。<br>
-      每週一／四早上自動產學習技巧、週二產會考情報（需要文案庫有「已審核」存貨）；
+      排程每天早上照上面那排輪值，從文案庫挑一則做成卡片（需要有「已審核」存貨）；
       或到「新貼文」手動建立。</p>`;
     return;
   }
@@ -355,17 +453,21 @@ async function loadBank() {
     `<p class="empty">讀取失敗：${esc(error.message)}</p>`; return; }
   BANK = data || [];
   // Say how long the stock lasts, not just how many there are — a bare count
-  // doesn't tell you the feed is about to go quiet. tip ships Mon+Thu (2/wk),
-  // exam_info Tue (1/wk); keep in step with PILLARS in generate-daily.ts.
+  // doesn't tell you the feed is about to go quiet. How fast a kind burns comes
+  // from ROTATION (one slot per weekday), so adding a pillar needs no edit here.
   const n = (k) => BANK.filter((b) => b.kind === k && b.status === "reviewed").length;
-  const runway = (count, perWeek) => {
+  const perWeek = (k) => ROTATION.filter((r) => r.kind === k).length || 1;
+  const runway = (count, wk) => {
     if (!count) return '<b style="color:var(--danger)">0 則 — 這個主題目前不會發文</b>';
-    const wks = count / perWeek;
+    const wks = count / wk;
     const txt = wks >= 1 ? `約 ${Math.floor(wks)} 週` : "不到 1 週";
     return `<b>${count}</b> 則（${txt}）${wks < 1 ? ' <span style="color:var(--brand-orange)">← 快用完了</span>' : ""}`;
   };
-  document.getElementById("bank-stock").innerHTML =
-    `已審核存貨：學習技巧 ${runway(n("tip"), 2)} · 會考情報 ${runway(n("exam_info"), 1)}`;
+  document.getElementById("bank-stock").innerHTML = "已審核存貨：<br>" +
+    Object.keys(BANK_KIND)
+      .map((k) => `${BANK_KIND[k]}（${shipsOn(k) || "未排入輪值"}） ${runway(n(k), perWeek(k))}`)
+      .join("<br>");
+  renderRotation();
   document.getElementById("bank").innerHTML = BANK.map((b) => `
     <div class="card ${b.status === "used" ? "used" : ""}" data-id="${b.id}">
       <div class="meta">
@@ -376,7 +478,7 @@ async function loadBank() {
       <textarea rows="1" data-f="title">${esc(b.title)}</textarea>
       <textarea rows="3" data-f="body">${esc(b.body)}</textarea>
       <textarea rows="2" data-f="caption" placeholder="貼文文案（留空 = 自動套模板）">${esc(b.caption || "")}</textarea>
-      ${b.status === "reviewed" ? `<p class="muted" style="margin:0">✓ 已排入待發清單 —— 等${b.kind === "tip" ? "下一個週一／四" : "下一個週二"}早上排程挑到它，就會出現在佇列。</p>` : ""}
+      ${b.status === "reviewed" ? `<p class="muted" style="margin:0">✓ 已排入待發清單 —— 等下一個${shipsOn(b.kind) || "輪值日"}早上排程挑到它，就會出現在佇列。</p>` : ""}
       ${b.status === "used" ? `<p class="muted" style="margin:0">已做成貼文（在佇列裡）。</p>` : ""}
       <div class="acts">
         <button class="ghost" data-act="save">儲存</button>
@@ -423,6 +525,52 @@ const FORMS = {
     <div id="students"></div>
     <button class="ghost" id="add-student">＋ 加一位</button>
     <label class="fld">備註<input type="text" data-p="note"></label>`,
+  offering: () => `
+    <label class="fld">從「開課資訊」帶入（選填，帶進來還是可以改）
+      <select id="c-offering-pick"><option value="">— 自己填 —</option></select></label>
+    <div class="row">
+      <label class="fld grow">班名<input type="text" data-p="class_name" placeholder="國二數學會考先修班"></label>
+      <label class="fld">對象<input type="text" data-p="grade_label" placeholder="國二" style="width:110px"></label>
+      <label class="fld">科目<input type="text" data-p="subject" placeholder="數學" style="width:110px"></label>
+    </div>
+    <div class="row">
+      <label class="fld grow">時段<input type="text" data-p="schedule" placeholder="週二/四 18:30–21:30"></label>
+      <label class="fld">開課日<input type="text" data-p="start_text" placeholder="9/2（三）"></label>
+      <label class="fld">報名截止<input type="text" data-p="deadline_text" placeholder="8/28（四）"></label>
+    </div>
+    <div class="row">
+      <label class="fld">名額<input type="text" data-p="seats" placeholder="限 12 人"></label>
+      <label class="fld grow">行動呼籲<input type="text" data-p="cta" placeholder="私訊報名 · 名額有限"></label>
+    </div>
+    <p class="muted" style="margin:8px 0 0">報名截止有填的話，卡片會把它放在<b>最重的位置</b> ——
+      家長會漏掉的是截止日，不是開課日（跟家長專區的特別班卡同一個道理）。</p>`,
+  notice: () => `
+    <div class="row">
+      <label class="fld">類型<select data-p="notice_kind">
+        ${["停課", "補課", "放假", "繳費", "其他"].map((k) => `<option>${k}</option>`).join("")}
+      </select></label>
+      <label class="fld grow">主標<input type="text" data-p="headline" placeholder="中秋連假停課三天"></label>
+    </div>
+    <label class="fld">日期（自由填寫）<input type="text" data-p="effective_text" placeholder="10/10（五）～10/12（日）"></label>
+    <label class="fld">說明<textarea rows="2" data-p="body" placeholder="9/13 起正常上課，補課時段會另外在班群公告。"></textarea></label>`,
+  teacher: () => `
+    <div class="row">
+      <label class="fld grow">老師<input type="text" data-p="name" placeholder="李老師"></label>
+      <label class="fld">科目<input type="text" data-p="subject" placeholder="數學" style="width:120px"></label>
+    </div>
+    <label class="fld">一句話（用老師自己的口吻）<input type="text" data-p="tagline" placeholder="我不趕進度，我趕到你會為止。"></label>
+    <label class="fld">學經歷（一行一項，2–4 行）<textarea rows="3" data-p="credentials" placeholder="清華大學 數學系&#10;國中數學教學 12 年"></textarea></label>
+    <label class="fld">補充<input type="text" data-p="note" placeholder="頭份校 · 國二／國三數學"></label>
+    <p class="muted" style="margin:8px 0 0">老師是成年人，沒有未成年個資的問題 ——
+      但學經歷請照老師同意公開的版本寫（跟官網師資頁一致）。要放照片就改用「圖片貼文」。</p>`,
+  weekly: () => `
+    <p class="muted">這禮拜補習班發生了什麼 —— 一張照片配一兩句就好，整張圖就是貼文。
+      這是唯一固定發<b>幕後日常</b>的位置（週五），不必做得漂亮，真實就有人看。<br>
+      <b>照片裡有學生的話</b>：看得出是誰 → 填家長書面同意編號；背影／局部／看不出來 →
+      勾「沒有真實學生」。</p>
+    <label class="fld">照片（PNG / JPG，建議 1080×1080 正方形，10MB 以內）
+      <input type="file" id="c-file" accept="image/png,image/jpeg,image/webp"></label>
+    <img id="c-preview" class="hide" style="max-width:320px;border-radius:10px;border:1px solid var(--line);margin-top:8px" alt="預覽">`,
   event: () => `
     <div class="row">
       <label class="fld grow">活動名稱<input type="text" data-p="event_name"></label>
@@ -479,6 +627,44 @@ function trajRow(label = "", score = "", level = "0") {
     <button class="ghost" data-rm>移除</button></div>`;
 }
 
+/** Pre-fill 開課資訊 from class_offerings — the same rows offerings.html edits,
+ *  so 招生 copy can't drift from what the 官網 and 家長專區 are advertising.
+ *  ⚠ That table's grants are COLUMN-SCOPED: select only columns granted there
+ *  (migrations 20260806000001 + 20260820000001), or the read comes back null.
+ *  Purely a convenience — any failure leaves the blank form usable. */
+async function fillOfferingPicker() {
+  const sel = document.getElementById("c-offering-pick");
+  if (!sel || sel.dataset.filled) return;
+  const { data, error } = await window.sb.from("class_offerings")
+    .select("id, name, grade_label, subject, schedule, start_date, kind, signup_deadline")
+    .neq("status", "closed").order("sort_order").order("name");
+  if (error || !data?.length) return;
+  sel.dataset.filled = "1";
+  sel.insertAdjacentHTML("beforeend", data.map((o) =>
+    `<option value="${o.id}">${esc(o.name)}${o.kind === "special" ? "（特別班）" : ""}</option>`).join(""));
+  sel.addEventListener("change", () => {
+    const o = data.find((r) => r.id === sel.value);
+    if (!o) return;
+    const set = (f, val) => {
+      const el = document.querySelector(`[data-p="${f}"]`);
+      if (el) el.value = val || "";
+    };
+    set("class_name", o.name);
+    set("grade_label", o.grade_label);
+    set("subject", o.subject);
+    set("schedule", o.schedule);
+    set("start_text", twDate(o.start_date));
+    set("deadline_text", twDate(o.signup_deadline));
+    // Mark it auto so switching 類型 doesn't leave a stale 「開課 · …」 title
+    // sitting on a 公告; a title Patty typed herself is left alone.
+    const title = document.getElementById("c-title");
+    if (!title.value.trim() || title.dataset.auto) {
+      title.value = `開課 · ${o.name}`;
+      title.dataset.auto = "1";
+    }
+  });
+}
+
 function renderCompose() {
   document.getElementById("compose").innerHTML = `
     <div class="row">
@@ -502,11 +688,14 @@ function renderCompose() {
   const typeEl = document.getElementById("c-type");
   const swap = () => {
     const t = typeEl.value;
+    const title = document.getElementById("c-title");
+    if (title.dataset.auto) { title.value = ""; delete title.dataset.auto; }
     document.getElementById("c-form").innerHTML = FORMS[t]();
     document.getElementById("c-consent").classList.toggle("hide", !PII_TYPES.includes(t));
     if (t === "honor_roll") document.getElementById("students").innerHTML = studentRow();
     if (t === "leap_card") document.getElementById("traj").innerHTML = trajRow() + trajRow() + trajRow();
-    if (t === "image_post") {
+    if (t === "offering") void fillOfferingPicker();
+    if (UPLOAD_TYPES.includes(t)) {
       document.getElementById("c-file").addEventListener("change", (e) => {
         const f = e.target.files[0];
         const img = document.getElementById("c-preview");
@@ -516,10 +705,10 @@ function renderCompose() {
     }
     // The 示意資料 wording differs for an uploaded photo: there it asserts that
     // nobody identifiable is in frame, not that the numbers are invented.
-    document.getElementById("c-sample-label").textContent = t === "image_post"
+    document.getElementById("c-sample-label").textContent = UPLOAD_TYPES.includes(t)
       ? "這張圖沒有真實學生（AI 生成／示意圖／無人物）"
       : "示意資料（虛構內容，卡片會標「示意資料」徽章）";
-    document.getElementById("c-go").textContent = t === "image_post"
+    document.getElementById("c-go").textContent = UPLOAD_TYPES.includes(t)
       ? "上傳並建立草稿" : "建立草稿（稍後自動產圖）";
     syncConsent();
   };
@@ -545,7 +734,20 @@ function syncConsent() {
 
 function payloadOf(t) {
   const v = (p) => (document.querySelector(`[data-p="${p}"]`)?.value || "").trim();
-  if (t === "image_post") return {};   // the image is the content; nothing to render
+  if (UPLOAD_TYPES.includes(t)) return {};  // the image is the content; nothing to render
+  if (t === "offering") return {
+    class_name: v("class_name"), grade_label: v("grade_label") || undefined,
+    subject: v("subject") || undefined, schedule: v("schedule") || undefined,
+    start_text: v("start_text") || undefined, deadline_text: v("deadline_text") || undefined,
+    seats: v("seats") || undefined, cta: v("cta") || undefined };
+  if (t === "notice") return {
+    notice_kind: v("notice_kind") || "其他", headline: v("headline"),
+    body: v("body") || undefined, effective_text: v("effective_text") || undefined };
+  if (t === "teacher") return {
+    name: v("name"), subject: v("subject") || undefined, tagline: v("tagline") || undefined,
+    // one credential per line — the card renders them as a 學經歷 list
+    credentials: v("credentials").split("\n").map((c) => c.trim()).filter(Boolean),
+    note: v("note") || undefined };
   if (t === "honor_roll") return {
     year_roc: v("year_roc"), headline: v("headline"), note: v("note") || undefined,
     students: [...document.querySelectorAll("[data-student]")].map((r) => ({
@@ -586,7 +788,7 @@ async function submit() {
   // An image post carries its own picture — upload it first, then insert the row
   // WITH image_keys set, so the render trigger never fires and no card is drawn.
   let imageKeys = [];
-  if (t === "image_post") {
+  if (UPLOAD_TYPES.includes(t)) {
     const file = document.getElementById("c-file").files[0];
     if (!file) {
       msg.innerHTML = '<span style="color:var(--danger)">請先選一張圖片。</span>';
@@ -629,7 +831,7 @@ async function submit() {
   }
   document.querySelector('nav button[data-tab="queue"]').click();
   await loadQueue();
-  if (t === "image_post") return;               // image is already there
+  if (UPLOAD_TYPES.includes(t)) return;        // image is already there
   msg.textContent = "已建立 ✓ 卡片產生中（約 2–3 分鐘），完成後會出現在佇列。";
   pollFor(data.id);
 }
@@ -658,6 +860,7 @@ function pollFor(id) {
     `${window.CURRENT_USER.email} · ${window.CURRENT_USER_ROLE}`;
   renderCompose();
   await Promise.all([loadQueue(), loadBank()]);
+  renderRotation();
 })();
 </script>
 </body>
