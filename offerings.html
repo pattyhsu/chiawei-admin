@@ -84,6 +84,11 @@ button:disabled { opacity: .5; cursor: default; }
       <input id="n-subject" placeholder="數學">
       <input id="n-schedule" placeholder="例：週二・週四 19:00–21:30">
       <input id="n-start" type="date">
+      <select id="n-kind" title="常態班 = 官網開課資訊；特別班 = AMC/AIME/出國班，會出現在家長專區">
+        <option value="regular">常態班</option>
+        <option value="special">特別班</option>
+      </select>
+      <input id="n-deadline" type="date" title="報名截止（特別班才需要）">
       <input id="n-sort" type="number" value="0">
     </div>
     <div class="row" style="margin-top:8px">
@@ -105,7 +110,8 @@ button:disabled { opacity: .5; cursor: default; }
   if (!window.CURRENT_USER_ROLE) return;
 
   const sb = window.sb;
-  const FIELDS = ["name", "grade_label", "subject", "schedule", "start_date", "note", "sort_order"];
+  const FIELDS = ["name", "grade_label", "subject", "schedule", "start_date", "note", "sort_order",
+                "kind", "signup_deadline"];
   const BADGE = { draft: ["b-draft", "草稿"], open: ["b-open", "開課中（公開）"], closed: ["b-closed", "已收班"] };
 
   function esc(s) {
@@ -127,6 +133,12 @@ button:disabled { opacity: .5; cursor: default; }
           <input data-f="subject" value="${esc(r.subject)}">
           <input data-f="schedule" value="${esc(r.schedule)}">
           <input data-f="start_date" type="date" value="${esc(r.start_date)}">
+          <select data-f="kind" title="特別班會出現在家長專區">
+            <option value="regular"${r.kind === "special" ? "" : " selected"}>常態班</option>
+            <option value="special"${r.kind === "special" ? " selected" : ""}>特別班</option>
+          </select>
+          <input data-f="signup_deadline" type="date" value="${esc(r.signup_deadline)}"
+                 title="報名截止 — 家長專區會把這一行放在最重的位置">
           <input data-f="sort_order" type="number" value="${esc(r.sort_order)}">
         </div>
         <div class="row" style="margin-top:6px"><input data-f="note" class="note-in" value="${esc(r.note)}"></div>
@@ -147,6 +159,8 @@ button:disabled { opacity: .5; cursor: default; }
       const inp = el.querySelector(`[data-f="${f}"]`);
       let v = inp.value.trim();
       if (f === "sort_order") v = parseInt(v || "0", 10);
+      // a date input left blank must be NULL, not "" — the column is a date
+      if (f === "signup_deadline" || f === "start_date") v = v || null;
       else if (v === "") v = null;
       patch[f] = v;
     });
@@ -177,6 +191,8 @@ button:disabled { opacity: .5; cursor: default; }
       subject: document.getElementById("n-subject").value.trim() || null,
       schedule: document.getElementById("n-schedule").value.trim() || null,
       start_date: document.getElementById("n-start").value || null,
+      kind: document.getElementById("n-kind").value,
+      signup_deadline: document.getElementById("n-deadline").value || null,
       note: document.getElementById("n-note").value.trim() || null,
       sort_order: parseInt(document.getElementById("n-sort").value || "0", 10),
       status: "draft",
