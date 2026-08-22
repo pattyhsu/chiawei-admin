@@ -22,11 +22,19 @@
        * profiles has no INSERT or DELETE grant either — accounts are created by
          the `teacher-create` Edge Function (which holds service_role server-side
          and hard-codes role='teacher'), and are never deleted, only 停用.
+       * 改帳號/改密碼 (added 2026-08-22) are the `teacher-credentials` function,
+         the second service_role holder. Neither is a table write a browser can
+         do: a password lives in GoTrue, and `profiles.username` is granted to
+         nobody. An OWNER ROW IS NOT A LEGAL TARGET there — a 主任 may rotate a
+         老師, only the 負責人 may rotate a 主任, and nobody rotates the 負責人
+         through this page. Both functions refuse to touch `profiles.role`.
        * every write lands an audit row via a security-definer trigger, with the
          signed-in owner as the actor.
 
-     The generated password is shown ONCE and is never stored anywhere — not in
-     the database, not in the audit row, not in this page's state after dismiss.
+     The password is shown ONCE and is never stored anywhere — not in the
+     database, not in the audit row, not in this page's state after dismiss.
+     That holds whether it was generated or typed here: the field is cleared on
+     success, so dismissing the panel really is the last copy.
 
      Load order is load-bearing: auth.js hides <body> at parse time and the boot
      block must not run until authGate() reaches a verdict. -->
@@ -93,6 +101,9 @@ input:focus, select:focus { outline: 2px solid var(--brand); border-color: trans
 label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; font-weight: 600; }
 .fld { margin-bottom: 12px; }
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+/* At phone width two-up squeezes a 12-character password into ~90px, and the
+   帳號密碼 panel is exactly the field you must be able to read back. */
+@media (max-width: 480px) { .row2 { grid-template-columns: 1fr; } }
 
 .pane {
   background: var(--surface); border: 1px solid var(--line);
@@ -143,8 +154,9 @@ ul.list li.off { opacity: .55; }
 .issued p { margin: 0 0 8px; font-size: 13px; }
 .issued .warn { color: var(--danger); font-weight: 600; }
 
-/* 指派班級 checkbox grid */
-.classpick {
+/* the two inline row panels — 指派班級 and 帳號密碼. Both drop below the row
+   they belong to rather than opening a modal, so the list never loses its place. */
+.classpick, .credpick {
   flex-basis: 100%; margin-top: 10px; padding-top: 10px;
   border-top: 1px dashed var(--line);
 }
@@ -154,6 +166,13 @@ ul.list li.off { opacity: .55; }
   font-size: 13px; color: var(--ink); font-weight: 400; margin: 0;
 }
 .classpick input { width: auto; }
+.credpick .hint { margin: -4px 0 10px; }
+
+/* password field + its 產生 button. The input is type=text on purpose: nobody
+   is typing their OWN password here — a 主任 is reading one out to a teacher,
+   and dots would only invite a typo neither of them can see. */
+.pwline { display: flex; gap: 8px; }
+.pwline button { flex: 0 0 auto; }
 </style>
 </head>
 <body>
@@ -191,10 +210,19 @@ ul.list li.off { opacity: .55; }
           <input id="f-fullname" type="text" placeholder="王老師" autocomplete="off">
         </div>
       </div>
+      <div class="fld">
+        <label for="f-password">密碼</label>
+        <div class="pwline">
+          <input id="f-password" type="text" placeholder="留空＝系統自動產生"
+                 autocomplete="off" autocapitalize="off" spellcheck="false">
+          <button type="button" class="small" data-gen="f-password">產生</button>
+        </div>
+      </div>
       <p class="hint" style="margin-top:0">
         帳號只能用英文小寫、數字、<code>. _ -</code>（2–32 字）。
         登入時只要輸入帳號，不用打 <code>@chiawei.local</code>。
-        密碼由系統產生，<strong>只會顯示一次</strong>。
+        密碼可以自己打（至少 8 個字）、按<strong>產生</strong>、或留空讓系統產生，
+        建立後<strong>只會顯示一次</strong>。
       </p>
       <div class="actions" style="margin-top:10px">
         <button type="button" id="btn-create" class="primary">建立帳號</button>
@@ -227,11 +255,18 @@ const ERROR_LABEL = {
   username_taken: "這個帳號已經有人用了",
   auth_create_failed: "建立登入失敗（帳號可能已存在於登入系統）",
   profile_create_failed: "建立帳號資料失敗，請再試一次",
-  rate_limited: "建立次數過於頻繁，請稍後再試",
-  forbidden: "只有負責人／管理員可以建立帳號",
+  rate_limited: "次數過於頻繁，請稍後再試",
+  forbidden: "只有負責人／主任可以做這個動作",
   deactivated: "你的帳號已停用",
   unauthenticated: "登入已過期，請重新登入",
   bad_request: "欄位不完整",
+  // teacher-credentials
+  bad_password: "密碼至少 8 個字，前後不能有空白",
+  no_such_account: "找不到這個帳號",
+  owner_protected: "負責人的帳號不能從這裡改，請用 Supabase 後台",
+  forbidden_target: "只有負責人可以改主任的帳號密碼",
+  password_update_failed: "改密碼失敗，請再試一次",
+  username_update_failed: "改帳號失敗，請再試一次",
 };
 
 function fail(e) {
@@ -252,6 +287,31 @@ const ROLE_LABEL = { owner: "負責人", admin: "主任", teacher: "老師" };
 let STAFF = [], CLASSES = [], ASSIGN = [];
 let editing = null;      // profile id whose 指派班級 grid is open
 let draftClasses = [];   // checkbox state while editing
+let credEditing = null;  // profile id whose 帳號密碼 panel is open
+
+// The two panels are mutually exclusive: render() rebuilds the whole list, and
+// a half-typed password in a row that just got re-rendered is a password lost.
+const closePanels = () => { editing = null; credEditing = null; };
+
+// A password a 主任 reads aloud and a teacher types, so: lowercase + digits
+// only, minus the four characters that get misheard or mistyped (l/1, o/0).
+// The alphabet is exactly 32 long, which divides 256 — so `% length` carries no
+// modulo bias and every character really is 5 uniform bits. 12 chars ≈ 60 bits.
+const PW_ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789";
+const PW_MIN = 8;   // must match teacher-create / teacher-credentials
+function genPassword(len = 12) {
+  const bytes = crypto.getRandomValues(new Uint8Array(len));
+  return Array.from(bytes, (b) => PW_ALPHABET[b % PW_ALPHABET.length]).join("");
+}
+
+// Who this page may hand new credentials to. The Edge Function enforces the
+// same rule server-side — this only decides whether the button is drawn.
+// Never an owner row (not even your own), and a 主任 row is 負責人-only.
+function mayEditCred(r) {
+  if (r.id === window.CURRENT_USER.id) return false;
+  if (r.role === "teacher") return true;
+  return r.role === "admin" && window.CURRENT_USER_ROLE === "owner";
+}
 
 async function loadAll() {
   const [prof, cls, asg] = await Promise.all([
@@ -294,6 +354,33 @@ function rowsHtml(rows) {
     const meta = [esc(r.username || "—"), ROLE_LABEL[r.role] || esc(r.role)];
     if (isTeacher) meta.push(mine.length ? mine.map((c) => esc(className(c))).join("、") : "尚未指派班級");
 
+    const credpanel = credEditing === r.id ? `
+      <div class="credpick">
+        <div class="row2">
+          <div class="fld">
+            <label>帳號 Username</label>
+            <input type="text" data-cred-user value="${esc(r.username || "")}"
+                   autocomplete="off" autocapitalize="off" spellcheck="false">
+          </div>
+          <div class="fld">
+            <label>新密碼</label>
+            <div class="pwline">
+              <input type="text" data-cred-pw placeholder="留空＝不改密碼"
+                     autocomplete="off" autocapitalize="off" spellcheck="false">
+              <button type="button" class="small" data-gen-cred="1">產生</button>
+            </div>
+          </div>
+        </div>
+        <p class="hint">
+          改帳號後，他要用<strong>新帳號</strong>登入；密碼留空就不動。
+          新密碼一樣<strong>只會顯示一次</strong>。
+        </p>
+        <div class="actions">
+          <button type="button" class="primary small" data-credsave="${esc(r.id)}">儲存</button>
+          <button type="button" class="small" data-cancel="1">取消</button>
+        </div>
+      </div>` : "";
+
     const picker = editing === r.id ? `
       <div class="classpick">
         <div class="grid">${
@@ -317,10 +404,13 @@ function rowsHtml(rows) {
       <div class="actions">
         ${isTeacher && editing !== r.id
             ? `<button type="button" class="small" data-assign="${esc(r.id)}">指派班級</button>` : ""}
+        ${mayEditCred(r) && credEditing !== r.id
+            ? `<button type="button" class="small" data-cred="${esc(r.id)}">帳號密碼</button>` : ""}
         ${r.id !== window.CURRENT_USER.id
             ? `<button type="button" class="small ${r.active ? "danger" : ""}" data-active="${esc(r.id)}" data-to="${r.active ? "0" : "1"}">${r.active ? "停用" : "啟用"}</button>` : ""}
       </div>
       ${picker}
+      ${credpanel}
     </li>`;
   }).join("");
 }
@@ -332,16 +422,26 @@ function rowsHtml(rows) {
 // do it was SQL.
 function hookRows(ul) {
   ul.querySelectorAll("[data-assign]").forEach((el) => el.addEventListener("click", () => {
-    editing = el.dataset.assign; draftClasses = classesOf(editing); render();
+    closePanels(); editing = el.dataset.assign; draftClasses = classesOf(editing); render();
+  }));
+  ul.querySelectorAll("[data-cred]").forEach((el) => el.addEventListener("click", () => {
+    closePanels(); credEditing = el.dataset.cred; render();
   }));
   ul.querySelectorAll("[data-cancel]").forEach((el) => el.addEventListener("click", () => {
-    editing = null; render();
+    closePanels(); render();
+  }));
+  // Fill the field rather than replacing it: the 主任 can still overwrite what
+  // 產生 produced, and nothing about the row re-renders (which would wipe it).
+  ul.querySelectorAll("[data-gen-cred]").forEach((el) => el.addEventListener("click", () => {
+    const input = el.closest(".pwline").querySelector("[data-cred-pw]");
+    input.value = genPassword(); input.focus(); input.select();
   }));
   ul.querySelectorAll("[data-cls]").forEach((el) => el.addEventListener("change", () => {
     const id = el.dataset.cls;
     draftClasses = el.checked ? [...draftClasses, id] : draftClasses.filter((x) => x !== id);
   }));
   ul.querySelectorAll("[data-save]").forEach((el) => el.addEventListener("click", () => saveClasses(el.dataset.save)));
+  ul.querySelectorAll("[data-credsave]").forEach((el) => el.addEventListener("click", () => saveCred(el, el.dataset.credsave)));
   ul.querySelectorAll("[data-active]").forEach((el) => el.addEventListener("click", () =>
     setActive(el.dataset.active, el.dataset.to === "1")));
 }
@@ -388,33 +488,42 @@ async function setActive(pid, active) {
   } catch (e) { fail(e); }
 }
 
+// The only two non-PostgREST calls on this site. Minting a login and rotating
+// one both need the Auth Admin API (service_role), so they live in Edge
+// Functions; supabase-js attaches the signed-in session's JWT, which each
+// function re-checks against profiles.role before doing anything.
+async function invokeFn(name, body) {
+  const { data, error } = await window.sb.functions.invoke(name, { body });
+  // A non-2xx from an Edge Function arrives as FunctionsHttpError with the body
+  // on error.context — dig the code out so ERROR_LABEL can speak.
+  if (error) {
+    let code = null;
+    try { code = (await error.context?.json())?.error; } catch { /* no JSON body */ }
+    throw { code, message: error.message };
+  }
+  if (!data || !data.ok) throw { code: data?.error };
+  return data;
+}
+
 async function createTeacher() {
   clearErr();
   const username = $("f-username").value.trim().toLowerCase();
   const full_name = $("f-fullname").value.trim();
+  const password = $("f-password").value;
   if (!username || !full_name) return fail({ code: "bad_request" });
+  // Checked here as well as in the function so the 主任 hears about a 3-letter
+  // password before the round trip, not after.
+  if (password && (password.length < PW_MIN || password.trim() !== password)) {
+    return fail({ code: "bad_password" });
+  }
 
   const btn = $("btn-create");
   btn.disabled = true; btn.textContent = "建立中…";
   try {
-    // The ONLY non-PostgREST call on this site. Creating a login needs the Auth
-    // Admin API (service_role), so it lives in the teacher-create Edge Function;
-    // supabase-js attaches the signed-in session's JWT, which the function
-    // re-checks against profiles.role before doing anything.
-    const { data, error } = await window.sb.functions.invoke("teacher-create", {
-      body: { username, full_name },
-    });
-    // A non-2xx from an Edge Function arrives as FunctionsHttpError with the
-    // body on error.context — dig the code out so ERROR_LABEL can speak.
-    if (error) {
-      let code = null;
-      try { code = (await error.context?.json())?.error; } catch { /* no JSON body */ }
-      throw { code, message: error.message };
-    }
-    if (!data || !data.ok) throw { code: data?.error };
-
-    showIssued(data.username, data.password);
-    $("f-username").value = ""; $("f-fullname").value = "";
+    // An empty password field means "you pick one" — the function generates.
+    const data = await invokeFn("teacher-create", { username, full_name, password });
+    showIssued(data.username, data.password, "created");
+    $("f-username").value = ""; $("f-fullname").value = ""; $("f-password").value = "";
     $("newform").style.display = "none"; $("btn-toggle-new").textContent = "展開";
     await refresh();
   } catch (e) {
@@ -424,16 +533,57 @@ async function createTeacher() {
   }
 }
 
+// 改帳號 / 改密碼. Either half may be a no-op; both together are two calls, and
+// the rename goes FIRST so that if the password call then fails, the account is
+// simply unchanged-but-renamed rather than holding a password shown under a
+// username that no longer exists.
+async function saveCred(btn, pid) {
+  clearErr();
+  const panel = btn.closest(".credpick");
+  const uname = panel.querySelector("[data-cred-user]").value.trim().toLowerCase();
+  const pw = panel.querySelector("[data-cred-pw]").value;
+  const who = STAFF.find((s) => s.id === pid) || {};
+  const label = who.full_name || who.username || "";
+
+  if (!uname) return fail({ code: "bad_username" });
+  if (pw && (pw.length < PW_MIN || pw.trim() !== pw)) return fail({ code: "bad_password" });
+  const renaming = uname !== String(who.username || "").toLowerCase();
+  if (!renaming && !pw) { closePanels(); return render(); }
+
+  if (renaming && !confirm(
+    `確定把「${label}」的帳號從 ${who.username} 改成 ${uname}？\n\n` +
+    `他下次要用「${uname}」登入，舊帳號就不能用了。`)) return;
+
+  btn.disabled = true; btn.textContent = "儲存中…";
+  try {
+    if (renaming) await invokeFn("teacher-credentials", { action: "username", id: pid, username: uname });
+    const issued = pw
+      ? await invokeFn("teacher-credentials", { action: "password", id: pid, password: pw })
+      : null;
+    closePanels();
+    await refresh();
+    if (issued) showIssued(issued.username, issued.password, "changed");
+  } catch (e) {
+    btn.disabled = false; btn.textContent = "儲存";
+    fail(e);
+    // A failed rename leaves the panel open with what was typed still in it, so
+    // the 主任 can fix the name and retry without re-typing the password.
+    await loadAll();
+  }
+}
+
 // The password exists in exactly one place: this panel. Nothing writes it to the
 // database, the audit row, or storage — dismissing it destroys the only copy.
-function showIssued(username, password) {
+// (Since 改密碼 exists, losing it is no longer terminal: it costs another
+// rotation rather than a dead account. The warning stays firm anyway.)
+function showIssued(username, password, mode) {
   $("issued").innerHTML = `
     <div class="issued">
-      <strong>已建立 ${esc(username)}</strong>
+      <strong>${mode === "changed" ? "已更新" : "已建立"} ${esc(username)}</strong>
       <p>密碼：<code>${esc(password)}</code></p>
       <p class="warn">這組密碼只會顯示這一次，系統不會保存。</p>
       <p class="hint" style="margin-bottom:10px">
-        請現在交給老師，關掉之後就看不到了。若遺失，只能停用這個帳號再建一個新的。
+        請現在交給老師，關掉之後就看不到了。若遺失，可以回來按<strong>帳號密碼</strong>再改一次。
       </p>
       <button type="button" id="btn-dismiss" class="small">我已抄下來</button>
     </div>`;
@@ -454,6 +604,10 @@ function showIssued(username, password) {
     if (!open) $("f-username").focus();
   });
   $("btn-create").addEventListener("click", createTeacher);
+  document.querySelectorAll("[data-gen]").forEach((el) => el.addEventListener("click", () => {
+    const input = $(el.dataset.gen);
+    input.value = genPassword(); input.focus(); input.select();
+  }));
   $("btn-offtoggle").addEventListener("click", () => {
     $("offlist").hidden = !$("offlist").hidden;
     render();

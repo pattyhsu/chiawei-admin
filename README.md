@@ -25,7 +25,7 @@ Fourteen tools, across three staff tiers — **負責人 / 主任 / 老師** (se
 | `leads.html` | 諮詢名單 (官網 form submissions). **hand-written**. Personal data. | 負責人 · 主任 |
 | `content.html` | The 內容行銷台 — **hand-written**, edit it here. | 負責人 · 主任 |
 | `offerings.html` | 開課資訊台 — rows with `status='open'` are PUBLIC. **hand-written**. | 負責人 · 主任 |
-| `teachers.html` | 老師帳號 — mints credentials via the `teacher-create` fn. **hand-written**. | 負責人 · 主任 |
+| `teachers.html` | 老師帳號 — mints and rotates credentials via the `teacher-create` / `teacher-credentials` fns. **hand-written**. | 負責人 · 主任 |
 | `classes.html` | 班級 (班級設定 × 在班學生 × 任教老師). **hand-written**. **Minors' PII.** | 負責人 · 主任 · 老師 (唯讀, own classes) |
 | `student.html` | 學生總覽 — one page per student: 學習進度 / 學費 / 餐費 / 聯絡方式, and the only 學生資料 edit form. **hand-written**. **Minors' PII.** | 負責人 · 主任 · 老師 (own students; no 學費/餐費/聯絡方式, no 編輯) |
 | `roster.html` | Redirect stub only — 名冊 became 班級 on 2026-08-18. Keeps old bookmarks off a 404; deletable once nobody uses the URL. | — |
@@ -308,22 +308,37 @@ profiles`), audited by a trigger added in `20260805000002_profiles_audit.sql`
 (pgTAP `14`). Those writes are actually attributed *better* here than on the
 server, which wrote as `service_role` and left a null actor in the audit row.
 
-**Creating an account is the one thing a browser genuinely cannot do**: it needs
-GoTrue's `/admin/users` (service_role), and it needs to write `profiles.role`,
-which is granted to nobody. So exactly that operation goes through a Supabase
-**Edge Function**, `teacher-create` (source in
-`chiawei/supabase/functions/teacher-create/`) — the only `service_role` holder
-reachable from the internet in this whole system. It is deliberately tiny:
+**Credentials are the one thing a browser genuinely cannot touch**: a password
+lives in GoTrue, reachable only through `/admin/users` (service_role), and
+`profiles.role` / `profiles.username` are granted to nobody. So exactly those
+operations go through two Supabase **Edge Functions** (source in
+`chiawei/supabase/functions/`) — the only `service_role` holders reachable from
+the internet in this whole system. Both are deliberately tiny, and both:
 
-- verifies the caller's JWT, then **re-reads `profiles.role` + `active`** (a JWT
+- verify the caller's JWT, then **re-read `profiles.role` + `active`** (a JWT
   stays valid after 停用; the profile read is what makes revocation bite)
-- `role` is **hard-coded to `'teacher'`** — it cannot mint an owner whatever the
-  caller sends
-- rate-limited to 10 creations/hour per owner, counted off `audit_log`
-- the generated password is returned once and never stored, logged or audited
+- never read or write `profiles.role` from input — nothing here can promote
+  anyone, which is the ceiling the role system rests on
+- return the password exactly once and never store, log or audit it — including
+  a password the 主任 typed rather than generated
+- are rate-limited off `audit_log`, and audit who did what to whom
 
-Do not add verbs to that function. Every one widens the blast radius of a bug in
-its authorization check; anything that RLS can do should stay in the page.
+`teacher-create` — mints an account. `role` is **hard-coded to `'teacher'`**
+whatever the caller sends; 10 creations/hour per caller. Since 2026-08-22 the
+caller may supply the password (≥8 chars) instead of taking a generated one, so
+a teacher can be handed something typeable.
+
+`teacher-credentials` — rotates one: `action:"password"` or `action:"username"`
+(which renames the GoTrue email too, since the login *is*
+`<username>@chiawei.local`). 20 rotations/hour per caller. **An owner row is
+never a legal target**, not even the caller's own: a 主任 may rotate a 老師,
+only the 負責人 may rotate a 主任, and the 負責人's own password is changed in
+the Supabase dashboard. A rename writes `profiles` first (its unique index on
+`lower(username)` is the only atomic guard against a race) and rolls that back
+if GoTrue then refuses — half-renamed is the one state nothing would report.
+
+Do not add verbs to these functions. Every one widens the blast radius of a bug
+in its authorization check; anything that RLS can do should stay in the page.
 
 ## DNS
 
