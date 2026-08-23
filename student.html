@@ -145,6 +145,15 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .mhead .x:hover { color: var(--ink); }
 .mbody { padding: 16px; overflow-y: auto; flex: 1; }
 .mbody .fgroup:last-child { margin-bottom: 0; }
+.binds { display: flex; flex-direction: column; gap: 6px; }
+.binds .b {
+  display: flex; align-items: baseline; gap: 10px; padding: 7px 10px;
+  border: 1px solid var(--line); border-radius: 8px; font-size: 13px;
+}
+.binds .b .who { font-weight: 600; }
+.binds .b .line { color: var(--muted); font-size: 12px; }
+.binds .b .off { color: var(--danger); font-size: 12px; font-weight: 600; }
+.binds .b button { margin-left: auto; }
 .bindout { flex: none; font-size: 13px; color: var(--muted); }
 .bindout:not(:empty) { padding: 10px 16px; border-top: 1px solid var(--line);
   background: #fbfcff; }
@@ -575,6 +584,10 @@ async function openEdit(s) {
         `<label><input type="checkbox" data-subj="${c.id}" ${has.has(c.id) ? "checked" : ""}>${esc(c.name)}</label>`).join("")}</div>
     </div>` : ""}
     </div>
+    ${s ? `<div class="fgroup">
+      <div class="legend">家長專區綁定</div>
+      <div id="f-binds" class="binds"><span class="msg">讀取中…</span></div>
+    </div>` : ""}
     <div class="bindout msg" id="f-bindout"></div>
     <div class="mfoot">
       ${s ? `<button type="button" class="quiet" id="f-toggle">${s.active ? "停用" : "啟用"}</button>` : ""}
@@ -587,6 +600,7 @@ async function openEdit(s) {
   $("f-cancel").onclick = () => box.close();
   $("f-close").onclick = () => box.close();
   $("f-save").onclick = () => saveStudent(s);
+  if (s) renderBinds(s);
   if (s) {
     $("f-toggle").onclick = async () => {
       const { error } = await window.sb.from("students")
@@ -610,6 +624,74 @@ async function openEdit(s) {
         `（14 天內有效，父母各可使用一次）抄給家長 → 官網「家長專區」→ LINE 登入 → 輸入此碼。`;
     };
   }
+}
+
+/** 家長專區綁定 — who can currently see this student in the LIFF, and the only
+ *  way to take that away. Nothing else in the back office shows this: a family
+ *  that leaves goes quiet (enrollments.active=false empties every parent view)
+ *  but stays BOUND, which privacy-v2 promises is undoable on request. */
+async function renderBinds(s) {
+  const box = $("f-binds");
+  if (!box) return;
+  const { data, error } = await window.sb
+    .from("parent_student")
+    .select("parent_id, parents(id, full_name, line_display_name, profile_id)")
+    .eq("student_id", s.id);
+  if (error) { box.innerHTML = `<span class="msg err">${esc(error.message)}</span>`; return; }
+  const rows = (data || []).filter((r) => r.parents);
+  if (!rows.length) {
+    box.innerHTML = `<span class="msg">尚未有家長綁定。按下方「產生家長綁定碼」發碼給家長。</span>`;
+    return;
+  }
+  // profiles.active is what parent-login re-reads on every login, so it — not
+  // the link — is what "can they still get in" actually means.
+  const pids = rows.map((r) => r.parents.profile_id).filter(Boolean);
+  const { data: profs } = pids.length
+    ? await window.sb.from("profiles").select("id, active").in("id", pids)
+    : { data: [] };
+  const activeOf = new Map((profs || []).map((p) => [p.id, p.active !== false]));
+  box.innerHTML = rows.map((r) => {
+    const p = r.parents;
+    const on = p.profile_id ? activeOf.get(p.profile_id) !== false : true;
+    return `<div class="b" data-pid="${esc(p.id)}">
+      <span class="who">${esc(p.full_name || p.line_display_name || "（未具名家長）")}</span>
+      ${p.line_display_name && p.full_name ? `<span class="line">LINE：${esc(p.line_display_name)}</span>` : ""}
+      ${on ? "" : `<span class="off">帳號已停用</span>`}
+      <button type="button" class="quiet" data-unbind>解除綁定</button>
+    </div>`;
+  }).join("");
+
+  box.querySelectorAll("[data-unbind]").forEach((btn) => {
+    btn.onclick = async () => {
+      const row = btn.closest(".b");
+      const who = row.querySelector(".who").textContent;
+      // Spell out both side effects — the consent record surviving is a
+      // deliberate 個資法 decision (Patty, 2026-08-23), not an oversight, and
+      // the reader of this dialog is the person who has to defend it.
+      if (!confirm(
+        `解除「${who}」與 ${s.full_name} 的綁定？\n\n` +
+        `・家長立刻看不到這個孩子的任何資料\n` +
+        `・若這是他綁定的最後一個孩子，帳號會一併停用\n` +
+        `・同意紀錄會保留（證明當初有取得同意），不會刪除\n\n` +
+        `之後要恢復，重新發一次綁定碼即可。`)) return;
+      btn.disabled = true;
+      const { data, error } = await window.sb.rpc("parent_unbind", {
+        p_parent_id: row.dataset.pid, p_student_id: s.id,
+      });
+      if (error || !data?.ok) {
+        btn.disabled = false;
+        $("f-bindout").className = "bindout msg err";
+        $("f-bindout").textContent = "解除失敗：" + (error?.message || data?.error || "unknown");
+        return;
+      }
+      $("f-bindout").className = "bindout msg";
+      $("f-bindout").textContent = `已解除「${who}」的綁定。` +
+        (data.deactivated ? "這是他的最後一個孩子，帳號已停用。" : "") +
+        (data.codes_expired ? `　這位學生已無綁定家長，${data.codes_expired} 組未使用的綁定碼一併失效。` : "") +
+        "　同意紀錄保留。";
+      await renderBinds(s);
+    };
+  });
 }
 
 async function saveStudent(s) {
