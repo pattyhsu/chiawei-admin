@@ -325,8 +325,8 @@ the internet in this whole system. Both are deliberately tiny, and both:
 
 `teacher-create` — mints an account. `role` is **hard-coded to `'teacher'`**
 whatever the caller sends; 10 creations/hour per caller. Since 2026-08-22 the
-caller may supply the password (≥8 chars) instead of taking a generated one, so
-a teacher can be handed something typeable.
+caller may supply the password (≥6 chars — GoTrue's own floor) instead of one it
+generates, so a teacher can be handed something typeable.
 
 `teacher-credentials` — rotates one: `action:"password"` or `action:"username"`
 (which renames the GoTrue email too, since the login *is*

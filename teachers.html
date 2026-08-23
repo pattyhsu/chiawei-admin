@@ -232,7 +232,7 @@ ul.list li.off { opacity: .55; }
       <p class="hint" style="margin-top:0">
         帳號只能用英文小寫、數字、<code>. _ -</code>（2–32 字）。
         登入時只要輸入帳號，不用打 <code>@chiawei.local</code>。
-        密碼可以自己打（至少 8 個字）、按<strong>產生</strong>、或留空讓系統產生，
+        密碼可以自己打（至少 6 個字）、按<strong>產生</strong>、或留空讓系統產生，
         建立後<strong>只會顯示一次</strong>。
       </p>
       <div class="actions" style="margin-top:10px">
@@ -272,7 +272,7 @@ const ERROR_LABEL = {
   unauthenticated: "登入已過期，請重新登入",
   bad_request: "欄位不完整",
   // teacher-credentials
-  bad_password: "密碼至少 8 個字，前後不能有空白",
+  bad_password: "密碼至少 6 個字，前後不能有空白",
   password_is_username: "密碼不能和帳號一樣",
   no_such_account: "找不到這個帳號",
   owner_protected: "負責人的帳號不能從這裡改，請用 Supabase 後台",
@@ -312,7 +312,10 @@ const closePanels = () => { editing = null; credEditing = null; };
 // The alphabet is exactly 32 long, which divides 256 — so `% length` carries no
 // modulo bias and every character really is 5 uniform bits. 12 chars ≈ 60 bits.
 const PW_ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789";
-const PW_MIN = 8;   // must match teacher-create / teacher-credentials
+// 6, Patty 2026-08-23. Also GoTrue's own configured floor, so it is the lowest
+// value that can work at all — below it the auth service refuses on its own, and
+// the 主任 would get a 502 instead of this page's plain sentence.
+const PW_MIN = 6;   // must match teacher-create / teacher-credentials
 function genPassword(len = 12) {
   const bytes = crypto.getRandomValues(new Uint8Array(len));
   return Array.from(bytes, (b) => PW_ALPHABET[b % PW_ALPHABET.length]).join("");
@@ -394,7 +397,7 @@ function rowsHtml(rows) {
         </div>
         <p class="hint">
           改帳號後，他要用<strong>新帳號</strong>登入；密碼留空就不動。
-          新密碼至少 <strong>8 個字</strong>、不能和帳號一樣，一樣<strong>只會顯示一次</strong>。
+          新密碼至少 <strong>6 個字</strong>、不能和帳號一樣，一樣<strong>只會顯示一次</strong>。
         </p>
         <p class="credmsg" hidden></p>
         <div class="actions">
