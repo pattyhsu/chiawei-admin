@@ -350,6 +350,12 @@ function renderDetail() {
 
 function renderClassForm(box, c) {
   $("detail-title").textContent = c ? "編輯班級" : "新增班級";
+  // 停用'd accounts are off the 任教老師 list — a class can only be assigned to
+  // someone who can still log in. The exception is one already assigned to THIS
+  // class: hiding that box would make 儲存 silently delete the assignment (the
+  // save diffs against the checkboxes on screen), so it stays, labelled 已停用.
+  const teacherChoices = TEACHERS.filter((t) =>
+    t.active || (c && ASSIGN.some((a) => a.class_id === c.id && a.profile_id === t.id)));
   box.innerHTML = `
     <div class="fld"><label>班級名稱</label><input id="f-name" value="${esc(c?.name || "")}" placeholder="八年級數學班"></div>
     <div class="row2">
@@ -359,9 +365,9 @@ function renderClassForm(box, c) {
     ${c && !RO() ? `
       <div class="fld">
         <label>任教老師</label>
-        ${TEACHERS.length === 0
-          ? '<p class="hint">還沒有老師帳號。請到<a href="teachers.html">老師帳號</a>建立。</p>'
-          : `<div class="teachers">${TEACHERS.map((t) => `
+        ${teacherChoices.length === 0
+          ? '<p class="hint">還沒有啟用中的老師帳號。請到<a href="teachers.html">老師帳號</a>建立或啟用。</p>'
+          : `<div class="teachers">${teacherChoices.map((t) => `
               <label><input type="checkbox" data-teacher="${t.id}"
                 ${ASSIGN.some((a) => a.class_id === c.id && a.profile_id === t.id) ? "checked" : ""}>
                 ${esc(t.full_name || t.username)}${t.active ? "" : "（已停用）"}</label>`).join("")}</div>`}
