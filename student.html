@@ -730,11 +730,20 @@ async function saveStudent(s) {
 /** Ported verbatim from 名冊: if the checkbox block was never rendered (a grade
  *  with no active classes), an empty `want` would unenroll the student from
  *  everything — bail instead. Unchecking every rendered box still unenrolls;
- *  that one is deliberate. */
+ *  that one is deliberate.
+ *
+ *  The box only ever renders the student's OWN grade (gradeSubjectClasses), so
+ *  `del` must be scoped to what was rendered. Otherwise saving this form wipes
+ *  every cross-grade enrollment — the 國一 who sits 國二數A, the 小六 in 國一英B.
+ *  That was unreachable while everyone sat only in their own grade; it stopped
+ *  being so on 2026-08-26 when the real 名單 put 9 students across grades.
+ *  Consequence: a cross-grade enrollment cannot be REMOVED here either. Silently
+ *  losing one is the worse failure. */
 async function syncSubjects(studentId) {
   const boxes = [...document.querySelectorAll("[data-subj]")];
   if (!boxes.length) return;
   const want = new Set(boxes.filter((b) => b.checked).map((b) => b.dataset.subj));
+  const rendered = new Set(boxes.map((b) => b.dataset.subj));
   const have = studentClassIds(studentId);
   for (const id of want) {
     if (!have.has(id)) {
@@ -744,7 +753,7 @@ async function syncSubjects(studentId) {
       if (error) throw error;
     }
   }
-  const del = [...have].filter((id) => !want.has(id));
+  const del = [...have].filter((id) => rendered.has(id) && !want.has(id));
   if (del.length) {
     const { error } = await window.sb.from("enrollments")
       .delete().eq("student_id", studentId).in("class_id", del);

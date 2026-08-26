@@ -268,7 +268,13 @@ const studentClasses = (sid) => ENROLL
 // the subject-classes offered for a grade (國一 has no 理化), in a fixed order.
 // A student picks a subset via 修習科目 checkboxes = their enrollments.
 const SUBJ_ORDER = { "國文": 0, "英文": 1, "數學": 2, "自然": 3 };
-const GRADE_NAME = { 7: "國一", 8: "國二", 9: "國三" };
+// 6 → 小六, 8 → 國二. Same ladder as 學生總覽's GRADE_LABEL and the app's
+// shared/grade.ts — the 國小部 joined the roster 2026-08-26.
+const GRADE_NAME = (g) =>
+  g >= 1 && g <= 6 ? "小" + "一二三四五六"[g - 1]
+  : g >= 7 && g <= 9 ? "國" + "一二三"[g - 7]
+  : g >= 10 && g <= 12 ? "高" + "一二三"[g - 10]
+  : (g == null ? "—" : `${g} 年級`);
 const gradeSubjectClasses = (grade) => CLASSES
   .filter((c) => c.active && c.grade === grade && c.subject)
   .sort((a, b) => ((SUBJ_ORDER[a.subject] ?? 9) - (SUBJ_ORDER[b.subject] ?? 9))
@@ -276,10 +282,16 @@ const gradeSubjectClasses = (grade) => CLASSES
 
 // ── render ──────────────────────────────────────────────────────────────────
 // grade tabs — the first cut. Pick a 年級, then its 班級 show below.
+// Tabs come from the DATA, not a literal: hardcoding [7,8,9] is what made the
+// 國小部 invisible the moment its classes existed. A grade with no class simply
+// has no tab, so this never shows an empty 小一 either.
 function renderGradeTabs() {
   const box = $("grade-tabs");
-  box.innerHTML = [7, 8, 9].map((g) =>
-    `<button type="button" data-grade="${g}" class="${selGrade === g ? "on" : ""}">${GRADE_NAME[g]}</button>`).join("");
+  const grades = [...new Set(CLASSES.map((c) => c.grade).filter((g) => g != null))]
+    .sort((a, b) => a - b);
+  if (!grades.includes(selGrade)) selGrade = grades.includes(7) ? 7 : grades[0];
+  box.innerHTML = grades.map((g) =>
+    `<button type="button" data-grade="${g}" class="${selGrade === g ? "on" : ""}">${GRADE_NAME(g)}</button>`).join("");
   box.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => {
     selGrade = Number(b.dataset.grade);
     selClass = null; mode = null;   // reset the downstream selection
@@ -299,7 +311,7 @@ function renderClasses() {
       ${c.active ? "" : '<span class="pill">已停用</span>'}
     </li>`).join("");
   $("class-empty").style.display = shown.length ? "none" : "";
-  $("class-empty").textContent = `${GRADE_NAME[selGrade] || ""}還沒有班級。`;
+  $("class-empty").textContent = `${GRADE_NAME(selGrade)}還沒有班級。`;
   ul.querySelectorAll("li").forEach((li) => li.addEventListener("click", () => {
     selClass = li.dataset.id; mode = "class"; renderAll();
   }));
