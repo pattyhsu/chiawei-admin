@@ -271,7 +271,8 @@ const SUBJ_ORDER = { "國文": 0, "英文": 1, "數學": 2, "自然": 3 };
 // 6 → 小六, 8 → 國二. Same ladder as 學生總覽's GRADE_LABEL and the app's
 // shared/grade.ts — the 國小部 joined the roster 2026-08-26.
 const GRADE_NAME = (g) =>
-  g >= 1 && g <= 6 ? "小" + "一二三四五六"[g - 1]
+  g === 0 ? "幼大"
+  : g >= 1 && g <= 6 ? "小" + "一二三四五六"[g - 1]
   : g >= 7 && g <= 9 ? "國" + "一二三"[g - 7]
   : g >= 10 && g <= 12 ? "高" + "一二三"[g - 10]
   : (g == null ? "—" : `${g} 年級`);

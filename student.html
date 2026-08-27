@@ -273,7 +273,8 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const money = (n) => "NT$" + Number(n || 0).toLocaleString("en-US");
 const GRADE_LABEL = (g) =>
-  g >= 1 && g <= 6 ? "小" + "一二三四五六"[g - 1]
+  g === 0 ? "幼大"
+  : g >= 1 && g <= 6 ? "小" + "一二三四五六"[g - 1]
   : g >= 7 && g <= 9 ? "國" + "一二三"[g - 7]
   : g >= 10 && g <= 12 ? "高" + "一二三"[g - 10]
   : (g == null ? "—" : `${g} 年級`);
