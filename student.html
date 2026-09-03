@@ -11,10 +11,13 @@
      This is the read view that pulls them together; 編輯 jumps to 名冊, so there
      is still exactly ONE place where student data is written.
 
-     LAYOUT: scanned, not read. Identity strip → three KPI tiles (未繳 / 餐費餘額 /
-     覆蓋度) → detail in columns. A manager opening a student wants "does she owe
-     money, is her meal balance low, how is she doing" answered before they read
-     anything, so those three are numbers at the top, colour-coded by state.
+     LAYOUT: scanned, not read. Identity strip → two KPI tiles (未繳 / 餐費餘額)
+     → detail in columns: everything the 編輯 form holds is READABLE on the page
+     (基本資料 / 家長聯絡 / 家長專區綁定), so opening a student shows the student
+     and 編輯資料 is only for changing something (Patty, 2026-09-03 — the first
+     cut hid the guardians behind the edit button). 學習進度 / 會考覆蓋度 were
+     removed the same day: that analysis lives in 出題台, and a "0" tile here
+     read as a verdict on a child who simply had no graded exam yet.
 
      🔑 ROLES ARE ENFORCED BY RLS, NOT BY THIS PAGE — with one exception.
      A teacher's JWT simply returns no rows for tuition_outstanding_v, meal_ledger
@@ -27,9 +30,8 @@
      single hide is done here in code, and is therefore the one thing a UI bug
      could expose. It is marked at the point of use.
 
-     ⚠️ Most 學習 tiles read empty until exams are graded: readiness_snapshots is
-     empty and archetype mastery exists for a handful of students. Empty states
-     say "not yet" and render "—", never 0 — a zero here would be a false claim. -->
+     Empty states say "not yet" and render "—", never 0 — a zero here would be a
+     false claim (NT$0 未繳 reads as "paid up"). -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="sb.js"></script>
 <script>window.PAGE_ROLES = ["owner", "admin", "teacher"];</script>
@@ -133,6 +135,19 @@ h2 .side { margin-left: auto; font-size: 12px; font-weight: 400; }
 .kv { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 14px; }
 .kv div { font-size: 14px; }
 .kv .k { font-size: 11px; color: var(--muted); display: block; }
+.kv .wide { grid-column: 1 / -1; white-space: pre-wrap; }
+/* guardians: one row per person, columns aligned, so 父/母 read as a pair. */
+.gtable td.who { width: 3em; color: var(--muted); font-size: 12px; font-weight: 700; }
+.gtable td { font-size: 14px; }
+.gtable td.line { color: var(--muted); font-size: 13px; }
+.gtable a { color: inherit; text-decoration: none; font-variant-numeric: tabular-nums; }
+.gtable a:hover { text-decoration: underline; }
+.binds-ro .b { display: flex; gap: 10px; align-items: baseline; font-size: 13px;
+  padding: 5px 0; border-top: 1px solid #f4f5f9; }
+.binds-ro .b:first-child { border-top: 0; }
+.binds-ro .who { font-weight: 600; }
+.binds-ro .line { color: var(--muted); font-size: 12px; }
+.binds-ro .off { color: var(--orange); font-size: 12px; font-weight: 600; }
 
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th { text-align: left; font-size: 11px; color: var(--muted); font-weight: 700;
@@ -276,20 +291,24 @@ button.quiet:hover { text-decoration: underline; }
 
     <div class="cols">
       <div class="col">
-        <div class="card" id="c-learn">
-          <h2>學習進度 <span class="side"><span class="msg">詳細分析在出題台</span></span></h2>
-          <div id="learn"></div>
+        <div class="card" id="c-basic">
+          <h2>基本資料</h2>
+          <div class="kv" id="basic"></div>
         </div>
-        <div class="card" id="c-tuition" hidden>
-          <h2>學費明細 <span class="side"><a href="tuition.html">收費台 →</a></span></h2>
-          <div id="tuition"></div>
+        <div class="card" id="c-contact" hidden>
+          <h2>家長聯絡</h2>
+          <div id="contact"></div>
+        </div>
+        <div class="card" id="c-binds" hidden>
+          <h2>家長專區綁定 <span class="side"><span class="msg">發碼、解除在「編輯資料」</span></span></h2>
+          <div class="binds-ro" id="binds"></div>
         </div>
       </div>
 
       <div class="col">
-        <div class="card" id="c-contact" hidden>
-          <h2>聯絡方式</h2>
-          <div class="kv" id="contact"></div>
+        <div class="card" id="c-tuition" hidden>
+          <h2>學費明細 <span class="side"><a href="tuition.html">收費台 →</a></span></h2>
+          <div id="tuition"></div>
         </div>
         <div class="card" id="c-meal" hidden>
           <h2>餐費明細 <span class="side"><a href="meals.html">餐費台 →</a></span></h2>
@@ -342,7 +361,7 @@ let KPI = {};
 
 function kpi(key, o) { KPI[key] = o; renderKpis(); }
 function renderKpis() {
-  const order = ["tuition", "meal", "readiness"];
+  const order = ["tuition", "meal"];
   $("kpis").innerHTML = order.filter((k) => KPI[k]).map((k) => {
     const o = KPI[k];
     return `<div class="kpi ${o.tone || ""}"><div class="lab">${esc(o.lab)}` +
@@ -486,7 +505,7 @@ async function load(id) {
   // Cosmetic deep-link update only — never let it abort the data load. (It
   // throws outright under file://, which is how this was noticed.)
   try { history.replaceState(null, "", `student.html?id=${SID}`); } catch (e) { /* ignore */ }
-  await Promise.all([loadBasic(), loadTuition(), loadMeal(), loadLearn(), loadNotes()]);
+  await Promise.all([loadBasic(), loadTuition(), loadMeal(), loadNotes()]);
 }
 
 async function loadBasic() {
@@ -507,9 +526,7 @@ async function loadBasic() {
   $("hdr").innerHTML =
     `<span class="nm">${esc(s.full_name)}</span>` +
     `<span class="no">${esc(s.student_no)}</span>` +
-    `<span class="meta"><b>${esc(GRADE_LABEL(s.grade))}</b>` +
-    (s.school ? `　${esc(s.school)}` : "") +
-    (s.note ? `　${esc(s.note)}` : "") + "</span>" +
+    `<span class="meta"><b>${esc(GRADE_LABEL(s.grade))}</b></span>` +
     (s.active ? "" : '<span class="chip warn">已停用</span>') +
     `<span class="chips">${chips || '<span class="msg">未加入任何班級</span>'}</span>` +
     ((ROLE === "owner" || ROLE === "admin")
@@ -517,21 +534,57 @@ async function loadBasic() {
   const eb = $("btn-edit");
   if (eb) eb.onclick = () => openEdit(STU);
 
+  const kv = (k, v, cls = "") => v
+    ? `<div class="${cls}"><span class="k">${esc(k)}</span>${esc(v)}</div>` : "";
+  $("basic").innerHTML =
+    kv("學號", s.student_no) + kv("年級", GRADE_LABEL(s.grade)) + kv("就讀學校", s.school) +
+    kv("狀態", s.active ? "在籍" : "已停用") + kv("標註", s.note, "wide")
+    || '<p class="empty">尚未填寫。</p>';
+
   // 🔑 THE ONE POLICY THIS PAGE ENFORCES IN CODE. RLS would happily hand a
   // teacher these columns for their own students (verified with a real JWT);
   // Patty's call is that it should not. Everything else here is fenced by the DB.
   const showContacts = ROLE === "owner" || ROLE === "admin";
   $("c-contact").hidden = !showContacts;
+  $("c-binds").hidden = !showContacts;
   if (showContacts) {
-    const rows = [
-      ["父親", s.father_name], ["父親電話", s.father_phone], ["父親 LINE", s.father_line],
-      ["母親", s.mother_name], ["母親電話", s.mother_phone], ["母親 LINE", s.mother_line],
-      ["家裡電話", s.home_phone], ["其他聯絡人", s.other_contact],
-    ].filter(([, v]) => v);
-    $("contact").innerHTML = rows.map(([k, v]) =>
-      `<div><span class="k">${esc(k)}</span>${esc(v)}</div>`).join("")
-      || '<p class="empty">沒有填寫聯絡方式。</p>';
+    const tel = (n) => n ? `<a href="tel:${esc(String(n).replace(/[^\d+]/g, ""))}">${esc(n)}</a>` : "";
+    const person = (who, name, phone, line) => (name || phone || line)
+      ? `<tr><td class="who">${who}</td><td>${esc(name || "—")}</td><td>${tel(phone) || "—"}</td>` +
+        `<td class="line">${line ? "LINE " + esc(line) : ""}</td></tr>` : "";
+    const rows =
+      person("父", s.father_name, s.father_phone, s.father_line) +
+      person("母", s.mother_name, s.mother_phone, s.mother_line) +
+      (s.home_phone ? `<tr><td class="who">家裡</td><td></td><td>${tel(s.home_phone)}</td><td></td></tr>` : "") +
+      (s.other_contact ? `<tr><td class="who">其他</td><td colspan="3">${esc(s.other_contact)}</td></tr>` : "");
+    $("contact").innerHTML = rows
+      ? `<table class="gtable"><tbody>${rows}</tbody></table>`
+      : '<p class="empty">沒有填寫聯絡方式。</p>';
+    renderBindsRO(s);
   }
+}
+
+/** Read-only mirror of the editor's 家長專區綁定 block — who can see this child
+ *  in the LIFF right now. Actions (發碼 / 解除) stay in 編輯資料. */
+async function renderBindsRO(s) {
+  const box = $("binds");
+  const { data, error } = await window.sb.from("parent_student")
+    .select("parent_id, parents(id, full_name, line_display_name, profile_id)")
+    .eq("student_id", s.id);
+  if (error) { box.innerHTML = `<p class="msg err">${esc(error.message)}</p>`; return; }
+  const rows = (data || []).filter((r) => r.parents);
+  if (!rows.length) { box.innerHTML = '<p class="empty">尚未有家長綁定。</p>'; return; }
+  const pids = rows.map((r) => r.parents.profile_id).filter(Boolean);
+  const { data: profs } = pids.length
+    ? await window.sb.from("profiles").select("id, active").in("id", pids) : { data: [] };
+  const activeOf = new Map((profs || []).map((p) => [p.id, p.active !== false]));
+  box.innerHTML = rows.map((r) => {
+    const p = r.parents;
+    const on = p.profile_id ? activeOf.get(p.profile_id) !== false : true;
+    return `<div class="b"><span class="who">${esc(p.full_name || p.line_display_name || "（未具名家長）")}</span>` +
+      (p.line_display_name && p.full_name ? `<span class="line">LINE：${esc(p.line_display_name)}</span>` : "") +
+      (on ? "" : '<span class="off">帳號已停用</span>') + "</div>";
+  }).join("");
 }
 
 async function loadTuition() {
@@ -602,47 +655,6 @@ async function loadMeal() {
       `<td>${r.kind === "topup" ? "預繳" : "便當" + (r.vendor ? `（${esc(r.vendor)}）` : "")}</td>` +
       `<td class="num">${r.kind === "topup" ? "+" : "−"}${money(r.amount)}</td></tr>`).join("") +
     "</tbody></table>";
-}
-
-async function loadLearn() {
-  const [snap, mast, sc] = await Promise.all([
-    window.sb.from("readiness_snapshots")
-      .select("snapshot_date, readiness").eq("student_id", SID)
-      .order("snapshot_date", { ascending: false }).limit(1),
-    window.sb.from("student_archetype_mastery").select("status").eq("student_id", SID),
-    window.sb.from("scores").select("score_100, exams(name, exam_date, status)")
-      .eq("student_id", SID),
-  ]);
-
-  const s = (snap.data || [])[0];
-  kpi("readiness", s
-    ? { lab: "會考考點覆蓋度", v: Math.round(s.readiness), tone: "info",
-        sub: `已學範圍 · 統計至 ${s.snapshot_date}` }
-    : { lab: "會考考點覆蓋度", v: "—", none: true, sub: "測驗批改後開始累積" });
-
-  let html = "";
-  const rows = mast.data || [];
-  if (rows.length) {
-    const by = {};
-    rows.forEach((r) => { by[r.status] = (by[r.status] || 0) + 1; });
-    html += '<div class="mrow">' + ["精熟", "接近", "不穩", "證據不足"].map((k) =>
-      `<div class="mstat"><b>${by[k] || 0}</b><span>${k}</span></div>`).join("") + "</div>";
-  } else {
-    html += '<p class="empty">還沒有精熟度資料（需要先批改測驗）。</p>';
-  }
-
-  const graded = (sc.data || [])
-    .filter((r) => r.exams && r.exams.status === "graded" && r.score_100 != null)
-    .sort((a, b) => (b.exams.exam_date || "").localeCompare(a.exams.exam_date || ""))
-    .slice(0, 8);
-  html += graded.length
-    ? '<table style="margin-top:8px"><thead><tr><th>日期</th><th>測驗</th>' +
-      '<th class="num">分數</th></tr></thead><tbody>' +
-      graded.map((r) => `<tr><td>${esc(r.exams.exam_date || "—")}</td>` +
-        `<td>${esc(r.exams.name || "")}</td>` +
-        `<td class="num"><b>${Math.round(r.score_100)}</b></td></tr>`).join("") + "</tbody></table>"
-    : '<p class="empty" style="margin-top:6px">還沒有已批改的測驗。</p>';
-  $("learn").innerHTML = html;
 }
 
 const nul = (v) => { const t = (v ?? "").trim(); return t === "" ? null : t; };
