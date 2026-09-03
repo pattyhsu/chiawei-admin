@@ -218,8 +218,15 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .guardian input::placeholder { color: var(--muted); }  /* …but there is no header row here */
 }
 
-/* class picker — pills, so 已選 is legible at a glance, not a row of ticks. */
-.subjbox { display: flex; flex-wrap: wrap; gap: 7px; }
+/* class picker — four columns by subject (英文 · 數學 · 自然 · 其他), each
+   stacking its classes, so 國一數A/數B sit under one heading instead of
+   scattering across a wrapped row (Patty, 2026-09-02). Pills, so 已選 is
+   legible at a glance, not a row of ticks. */
+.subjbox { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px 12px; }
+@media (max-width: 720px) { .subjbox { grid-template-columns: 1fr 1fr; } }
+.subjcol { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.subjcol .ch { font-size: 11px; color: var(--muted); font-weight: 700; margin-bottom: 1px; }
+.subjcol .none { font-size: 12px; color: var(--muted); }
 .subjbox label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
   border: 1px solid var(--line); border-radius: 999px; padding: 4px 13px 4px 10px;
   background: #fff; cursor: pointer; }
@@ -318,6 +325,15 @@ const GRADE_LABEL = (g) =>
   : (g == null ? "—" : `${g} 年級`);
 
 const SUBJ_ORDER = { 國文: 0, 英文: 1, 數學: 2, 自然: 3 };
+// The picker's four columns. 理化 is its own 科目 in the bank but the same
+// column here; the last column catches whatever else a class is called
+// (國文, 課輔, 社會…) so a new subject never vanishes from the form.
+const SUBJ_COLS = [
+  ["英文", (c) => c.subject === "英文"],
+  ["數學", (c) => c.subject === "數學"],
+  ["自然 / 理化", (c) => c.subject === "自然" || c.subject === "理化"],
+  ["其他", (c) => !["英文", "數學", "自然", "理化"].includes(c.subject)],
+];
 let ROLE = null, SID = null, ALL = [], STU = null, CLASSES = [], ENROLL = [], NEW_CLASS = null;
 // The three KPI tiles are filled by three independent async loads, so each one
 // writes its own slot and the row is re-rendered from the collected state —
@@ -702,8 +718,12 @@ async function openEdit(s) {
     </div>
     ${subj.length ? `<div class="fgroup">
       <div class="legend">修習班級（${esc(GRADE_LABEL(grade))}）</div>
-      <div class="subjbox">${subj.map((c) =>
-        `<label><input type="checkbox" data-subj="${c.id}" ${has.has(c.id) ? "checked" : ""}>${esc(c.name)}</label>`).join("")}</div>
+      <div class="subjbox">${SUBJ_COLS.map(([head, pick]) => {
+        const cs = subj.filter(pick);
+        return `<div class="subjcol"><span class="ch">${head}</span>` + (cs.map((c) =>
+          `<label><input type="checkbox" data-subj="${c.id}" ${has.has(c.id) ? "checked" : ""}>${esc(c.name)}</label>`).join("")
+          || '<span class="none">—</span>') + "</div>";
+      }).join("")}</div>
     </div>` : ""}
     </div>
     ${s ? `<div class="fgroup">
