@@ -59,6 +59,37 @@ button.danger { background: transparent; border: 0; color: var(--muted);
   padding: 0 4px; font-size: 12px; font-weight: 400; }
 button.danger:hover { color: var(--orange); text-decoration: underline; }
 
+/* ── browse: grade tabs + the list ───────────────────────────────────────
+   The page used to open on nothing: a search box and a blank canvas, so you
+   had to already know a name to see anyone. Now it opens on a 年級 tab and
+   its students, and the search narrows across every grade as you type. */
+.gradetabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.gradetabs button { background: #fff; border: 1px solid var(--line); color: var(--ink);
+  font-weight: 600; font-size: 13px; padding: 6px 14px; min-width: 72px; }
+.gradetabs button:hover { border-color: #c9cee0; }
+.gradetabs button.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+.gradetabs button .n { font-weight: 400; opacity: .7; margin-left: 4px;
+  font-variant-numeric: tabular-nums; font-size: 12px; }
+#list .lhead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
+#list .lhead b { font-size: 15px; }
+#list .lhead .msg { margin-left: auto; }
+#list table { table-layout: fixed; }
+#list th.no, #list td.no { width: 96px; font-variant-numeric: tabular-nums; color: var(--muted); }
+#list th.nm, #list td.nm { width: 120px; }
+#list td.nm { font-weight: 700; font-size: 14px; }
+#list th.sc, #list td.sc { width: 150px; color: var(--muted); }
+#list tbody tr { cursor: pointer; }
+#list tbody tr:hover td { background: #f3f5fc; }
+#list td { padding: 7px 6px; }
+#list .chips { gap: 4px; }
+#list .chip { font-size: 11px; padding: 0 8px; white-space: nowrap; }
+.top .back { display: none; }
+body.viewing .top .back { display: inline; }
+@media (max-width: 720px) {
+  #list th.sc, #list td.sc { display: none; }
+  #list th.no, #list td.no { width: 80px; }
+}
+
 /* ── identity strip: one band, not a card of labelled fields ─────────────── */
 .hdr { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
   padding: 12px 16px; margin-bottom: 12px; display: flex; align-items: center;
@@ -216,13 +247,20 @@ button.quiet:hover { text-decoration: underline; }
 <div class="wrap">
   <div class="top">
     <h1>學生總覽</h1>
-    <input id="find" type="search" list="findlist" placeholder="🔍 姓名 / 學號" autocomplete="off"
+    <input id="find" type="search" placeholder="🔍 姓名 / 學號" autocomplete="off"
       style="min-width:220px">
-    <datalist id="findlist"></datalist>
     <button type="button" id="btn-new">＋ 新增學生</button>
+    <a href="#" class="back" id="btn-back">← 回名單</a>
     <span class="msg" id="pickmsg"></span>
     <span class="msg"><a href="index.html">← 回後台</a>　<a href="classes.html">班級</a>
       　<span id="who"></span> <a href="#" id="btn-signout">登出</a></span>
+  </div>
+
+  <div class="gradetabs" id="grade-tabs"></div>
+
+  <div class="card" id="list" hidden>
+    <div class="lhead"><b id="ltitle"></b><span class="msg" id="lhint"></span></div>
+    <div id="lrows"></div>
   </div>
 
   <div id="body" hidden>
@@ -279,6 +317,7 @@ const GRADE_LABEL = (g) =>
   : g >= 10 && g <= 12 ? "高" + "一二三"[g - 10]
   : (g == null ? "—" : `${g} 年級`);
 
+const SUBJ_ORDER = { 國文: 0, 英文: 1, 數學: 2, 自然: 3 };
 let ROLE = null, SID = null, ALL = [], STU = null, CLASSES = [], ENROLL = [], NEW_CLASS = null;
 // The three KPI tiles are filled by three independent async loads, so each one
 // writes its own slot and the row is re-rendered from the collected state —
@@ -306,45 +345,128 @@ function renderKpis() {
   $("who").textContent = `${window.CURRENT_USER.email} · ${ROLE_LABEL[ROLE] || ROLE}`;
 
   // RLS already scopes this: a teacher's list contains only students they teach.
-  const { data: st, error } = await window.sb.from("students")
-    .select("id, full_name, student_no, active")
-    .eq("active", true).order("student_no");
-  if (error) { $("pickmsg").className = "msg err"; $("pickmsg").textContent = error.message; return; }
+  // Paged, because PostgREST silently caps a bare select at 1000 rows and a
+  // roster that grows past it would just lose its tail with no error.
+  const [st, enr] = await Promise.all([
+    fetchAll((from, to) => window.sb.from("students")
+      .select("id, full_name, student_no, grade, school, active")
+      .eq("active", true).order("student_no").range(from, to)),
+    fetchAll((from, to) => window.sb.from("enrollments")
+      .select("student_id, classes(name, subject)").eq("active", true).range(from, to)),
+  ]).catch((e) => { $("pickmsg").className = "msg err"; $("pickmsg").textContent = e.message; return [null]; });
+  if (!st) return;
   if (!st.length) { $("pickmsg").textContent = "沒有可檢視的學生。"; return; }
 
   ALL = st;
-  // A 164-entry <select> is not a way to find anyone. Type-to-filter over both
-  // 姓名 and 學號; the datalist option VALUE is the label the browser fills in,
-  // so we resolve back to an id by matching that label.
-  $("findlist").innerHTML = st.map((s) =>
-    `<option value="${esc(s.student_no)}　${esc(s.full_name)}"></option>`).join("");
-  const pickByLabel = () => {
-    const v = $("find").value.trim();
-    const hit = st.find((s) => `${s.student_no}　${s.full_name}` === v)
-      || st.find((s) => s.student_no === v || s.full_name === v);
-    if (hit) load(hit.id);
-  };
-  $("find").addEventListener("input", pickByLabel);
-  $("find").addEventListener("change", pickByLabel);
+  const classesOf = {};
+  (enr || []).forEach((e) => {
+    if (!e.classes) return;
+    (classesOf[e.student_id] ||= []).push(e.classes);
+  });
+  Object.values(classesOf).forEach((l) => l.sort((a, b) =>
+    ((SUBJ_ORDER[a.subject] ?? 9) - (SUBJ_ORDER[b.subject] ?? 9))
+    || (a.name || "").localeCompare(b.name || "", "zh-Hant")));
+  st.forEach((s) => { s.classes = classesOf[s.id] || []; });
+
+  renderGradeTabs();
+  $("find").addEventListener("input", () => showList());
+  $("find").addEventListener("keydown", (ev) => {
+    // Enter on a single hit opens it; Escape clears the search back to the tab.
+    if (ev.key === "Enter") { const m = matches(); if (m.length === 1) load(m[0].id); }
+    if (ev.key === "Escape") { $("find").value = ""; showList(); }
+  });
+  $("btn-back").addEventListener("click", (ev) => { ev.preventDefault(); load(null); });
   $("noteAdd").onclick = addNote;
   $("btn-new").onclick = () => openEdit(null);
 
   const q = new URLSearchParams(location.search);
   const qs = q.get("id");
-  if (q.get("new") === "1") { NEW_CLASS = q.get("class"); openEdit(null); }
+  if (q.get("new") === "1") { NEW_CLASS = q.get("class"); openEdit(null); showList(); }
   else if (qs && st.some((s) => s.id === qs)) {
-    const s0 = st.find((x) => x.id === qs);
-    $("find").value = `${s0.student_no}　${s0.full_name}`;
+    SEL_GRADE = st.find((x) => x.id === qs).grade;
     load(qs);
-  }
+  } else showList();
 })();
+
+async function fetchAll(page) {
+  const out = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await page(from, from + 999);
+    if (error) throw error;
+    out.push(...(data || []));
+    if (!data || data.length < 1000) return out;
+  }
+}
+
+// ── browse: grade tabs + list ─────────────────────────────────────────────
+// Tabs come from the DATA, not a literal (same rule as 班級): a grade with no
+// student has no tab, and the 國小部 appears the moment a 小四 is enrolled.
+let SEL_GRADE = null;
+const gradesPresent = () =>
+  [...new Set(ALL.map((s) => s.grade))].sort((a, b) => (a ?? 99) - (b ?? 99));
+
+function renderGradeTabs() {
+  const grades = gradesPresent();
+  if (!grades.includes(SEL_GRADE)) SEL_GRADE = grades.includes(7) ? 7 : grades[0];
+  const searching = $("find").value.trim() !== "";
+  $("grade-tabs").innerHTML = grades.map((g) => {
+    const n = ALL.filter((s) => s.grade === g).length;
+    const on = !searching && SEL_GRADE === g && !SID;
+    return `<button type="button" data-grade="${g ?? ""}" class="${on ? "on" : ""}">` +
+      `${esc(GRADE_LABEL(g))}<span class="n">${n}</span></button>`;
+  }).join("");
+  $("grade-tabs").querySelectorAll("button").forEach((b) => b.onclick = () => {
+    SEL_GRADE = b.dataset.grade === "" ? null : Number(b.dataset.grade);
+    $("find").value = "";
+    load(null);
+  });
+}
+
+/** The rows the list should show right now: a search wins over the tab and
+ *  crosses every grade, since the person typing a name doesn't know which
+ *  年級 to look under — that was the whole complaint. */
+function matches() {
+  const v = $("find").value.trim().toLowerCase();
+  if (v) return ALL.filter((s) =>
+    (s.full_name || "").toLowerCase().includes(v) || (s.student_no || "").toLowerCase().includes(v));
+  return ALL.filter((s) => s.grade === SEL_GRADE);
+}
+
+function showList() {
+  SID = null;
+  document.body.classList.remove("viewing");
+  $("body").hidden = true;
+  $("list").hidden = false;
+  try { history.replaceState(null, "", "student.html"); } catch (e) { /* ignore */ }
+  renderGradeTabs();
+  const v = $("find").value.trim();
+  const rows = matches();
+  $("ltitle").textContent = v ? `搜尋「${v}」` : GRADE_LABEL(SEL_GRADE);
+  $("lhint").textContent = `${rows.length} 位` + (v ? "（全部年級）" : "");
+  $("lrows").innerHTML = rows.length
+    ? '<table><thead><tr><th class="no">學號</th><th class="nm">姓名</th>' +
+      (v ? '<th style="width:60px">年級</th>' : "") +
+      '<th>班級</th><th class="sc">學校</th></tr></thead><tbody>' +
+      rows.map((s) => `<tr data-id="${esc(s.id)}"><td class="no">${esc(s.student_no || "—")}</td>` +
+        `<td class="nm">${esc(s.full_name)}</td>` +
+        (v ? `<td>${esc(GRADE_LABEL(s.grade))}</td>` : "") +
+        `<td><span class="chips">${s.classes.map((c) => `<span class="chip">${esc(c.name)}</span>`).join("")
+          || '<span class="msg">未加入班級</span>'}</span></td>` +
+        `<td class="sc">${esc(s.school || "")}</td></tr>`).join("") +
+      "</tbody></table>"
+    : `<p class="empty">${v ? "沒有符合的學生。" : "這個年級還沒有學生。"}</p>`;
+  $("lrows").querySelectorAll("tr[data-id]").forEach((tr) => tr.onclick = () => load(tr.dataset.id));
+}
 
 async function load(id) {
   SID = id || null;
   KPI = {};
   $("kpis").innerHTML = "";
-  $("body").hidden = !SID;
-  if (!SID) return;
+  if (!SID) { showList(); return; }
+  $("list").hidden = true;
+  $("body").hidden = false;
+  document.body.classList.add("viewing");
+  renderGradeTabs();
   // Cosmetic deep-link update only — never let it abort the data load. (It
   // throws outright under file://, which is how this was noticed.)
   try { history.replaceState(null, "", `student.html?id=${SID}`); } catch (e) { /* ignore */ }
@@ -509,7 +631,6 @@ async function loadLearn() {
 
 const nul = (v) => { const t = (v ?? "").trim(); return t === "" ? null : t; };
 const num = (v) => { const t = (v ?? "").trim(); return t === "" ? null : Number(t); };
-const SUBJ_ORDER = { 國文: 0, 英文: 1, 數學: 2, 自然: 3 };
 const gradeSubjectClasses = (grade) => CLASSES
   .filter((c) => c.active && c.grade === grade && c.subject)
   .sort((a, b) => ((SUBJ_ORDER[a.subject] ?? 9) - (SUBJ_ORDER[b.subject] ?? 9))
