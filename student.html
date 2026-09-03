@@ -158,7 +158,10 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   border-radius: 0 0 12px 12px; display: flex; align-items: center; gap: 10px; }
 .fld label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
 .fld input, .fld textarea { width: 100%; }
-.frow { display: grid; gap: 10px 12px; grid-template-columns: 1.3fr 1fr 72px 1.2fr; }
+/* 原校班級 is students.note — 142 of 212 active students carry one and nearly
+   every value is 「原校班級 806」-shaped, so it is a short field on the 基本 row,
+   not a textarea called 標註 (Patty, 2026-09-03). */
+.frow { display: grid; gap: 10px 12px; grid-template-columns: 1.2fr 1fr 64px 1.1fr 1fr; }
 @media (max-width: 720px) { .frow { grid-template-columns: 1fr 1fr; } }
 
 /* guardian grid — 家裡 sits under the 電話 column so the numbers stack. */
@@ -167,19 +170,20 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .guardian .gh { font-size: 11px; color: var(--muted); padding-left: 2px; }
 .guardian .glabel { font-size: 12px; color: var(--muted); font-weight: 600; text-align: right; }
 .guardian input { width: 100%; }
+/* last row: 家裡 電話 under the 電話 column, 其他 beside it on the same line. */
 .guardian .phone-only { grid-column: 3; }
-.guardian .wide { grid-column: 2 / -1; }
+.guardian .other { grid-column: 4; }
 /* `display: contents` lets each person's three inputs sit in the parent grid on
    desktop, then become their own stack on mobile — one markup, both layouts. */
 .guardian .trio { display: contents; }
 .guardian input::placeholder { color: transparent; }   /* the header row labels them */
-.guardian .wide::placeholder { color: var(--muted); }  /* …except 其他, which has no header */
+.guardian .other::placeholder { color: var(--muted); } /* …except 其他, which has no header */
 @media (max-width: 720px) {
   .guardian { grid-template-columns: 2.6em 1fr; }
-  .guardian .gh, .guardian .filler { display: none; }
+  .guardian .gh { display: none; }
   .guardian .glabel { align-self: start; padding-top: 8px; }
   .guardian .trio { display: grid; gap: 6px; }
-  .guardian .phone-only, .guardian .wide { grid-column: 2; }
+  .guardian .phone-only, .guardian .other { grid-column: 2; }
   .guardian input::placeholder { color: var(--muted); }  /* …but there is no header row here */
 }
 
@@ -562,9 +566,8 @@ async function renderForm(s) {
         <div class="fld"><label>學號</label><input id="f-no"${dis} value="${esc(s?.student_no || "")}"></div>
         <div class="fld"><label>年級</label><input id="f-grade"${dis} type="number" min="0" max="12" value="${s?.grade ?? (newCls?.grade ?? "")}"></div>
         <div class="fld"><label>就讀學校</label><input id="f-school"${dis} value="${esc(s?.school || "")}"></div>
+        <div class="fld"><label>原校班級</label><input id="f-note"${dis} placeholder="806、4年乙班" value="${esc(s?.note || "")}"></div>
       </div>
-      <div class="fld" style="margin-top:10px"><label>標註</label><textarea id="f-note"${dis} rows="2"
-        placeholder="原校班級、座位…">${esc(s?.note || "")}</textarea></div>
     </div>
     ${showContacts ? `<div class="grp">
       <div class="lg">家長聯絡</div>
@@ -584,9 +587,7 @@ async function renderForm(s) {
         </div>
         <span class="glabel">家裡</span>
         <input id="f-hphone" class="phone-only" placeholder="電話" inputmode="tel" value="${esc(s?.home_phone || "")}">
-        <span class="filler"></span>
-        <span class="glabel">其他</span>
-        <input id="f-other" class="wide" placeholder="阿嬤 0912-…、緊急聯絡…" value="${esc(s?.other_contact || "")}">
+        <input id="f-other" class="other" placeholder="其他聯絡人，例：阿嬤 0912-…" value="${esc(s?.other_contact || "")}">
       </div>
     </div>` : ""}
     <div class="grp">
