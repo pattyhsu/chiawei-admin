@@ -751,18 +751,23 @@ async function openEdit(s) {
       box.close(); CLASSES = []; ENROLL = []; load(s.id);
     };
     // 家長綁定碼 — parent_link_codes (migration 20260806000003). 14 天有效、父母各
-    // 一次 (max_uses 2). 32-char alphabet with no 0/O/1/I divides 256 evenly → no
-    // modulo bias.
+    // 一次 (max_uses 2). 8 DIGITS since 2026-09-02 (Patty's call — readable off a
+    // paper slip); the guess budget is parent_bind()'s 5/h limit, so the
+    // alphabet shrinking is fine but the length must stay 8. Bytes ≥250 are
+    // rejected so `% 10` is uniform — no modulo bias.
     $("f-bind").onclick = async () => {
-      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-      const buf = new Uint8Array(8);
-      crypto.getRandomValues(buf);
-      const code = [...buf].map((b) => chars[b % chars.length]).join("");
+      const digits = [];
+      while (digits.length < 8) {
+        const buf = new Uint8Array(16);
+        crypto.getRandomValues(buf);
+        for (const b of buf) if (b < 250 && digits.length < 8) digits.push(b % 10);
+      }
+      const code = digits.join("");
       const { error } = await window.sb.from("parent_link_codes")
         .insert({ code, student_id: s.id });
       if (error) { $("f-bindout").className = "bindout msg err"; $("f-bindout").textContent = error.message; return; }
       $("f-bindout").className = "bindout msg";
-      $("f-bindout").innerHTML = `家長綁定碼：<b style="font-size:17px;letter-spacing:.2em">${code}</b>` +
+      $("f-bindout").innerHTML = `家長綁定碼：<b style="font-size:17px;letter-spacing:.2em">${code.slice(0, 4)} ${code.slice(4)}</b>` +
         `（14 天內有效，父母各可使用一次）抄給家長 → 官網「家長專區」→ LINE 登入 → 輸入此碼。`;
     };
   }
