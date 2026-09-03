@@ -5,30 +5,41 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>家偉補習班 · 學生總覽</title>
-<!-- 學生總覽 — everything about ONE student on one page (Patty, 2026-08-18).
+<!-- 學生總覽 — find a student, then everything about that ONE student
+     (Patty, 2026-08-18; redesigned to her approved mockup 2026-09-03).
 
-     The data already existed, spread across 名冊 / 收費台 / 餐費台 / 分析報告.
-     This is the read view that pulls them together; 編輯 jumps to 名冊, so there
-     is still exactly ONE place where student data is written.
+     TWO SCREENS, ONE JOB EACH.
+       名單  — 年級 tabs + search + list + 新增學生. The only place the tabs live.
+       學生  — a breadcrumb back to that grade's list, the name as the title, and
+               two columns that mean two different things:
+                 LEFT  = the record. ONE card (基本 / 家長聯絡 / 修習班級 as ruled
+                         sections). 儲存 sits in the card's header, grey until a
+                         field changes, and the header sticks to the top of the
+                         screen on a long form. 停用學生 is a quiet last line.
+                 RIGHT = what's happening: 學費 / 餐費 / 家長專區 / 備註. The money
+                         figures live INSIDE their cards — there is no KPI band,
+                         because for most students it read "—" twice across a
+                         whole row.
+     The first cut hid the guardians behind an 編輯資料 popup and kept the grade
+     tabs on screen while looking at one child; both were called out and are
+     the reason for this shape. 學習進度 / 會考覆蓋度 were removed the same day:
+     that analysis lives in 出題台, and a "0" tile here read as a verdict on a
+     child who simply had no graded exam yet.
 
-     LAYOUT: scanned, not read. Identity strip → two KPI tiles (未繳 / 餐費餘額)
-     → detail in columns: everything the 編輯 form holds is READABLE on the page
-     (基本資料 / 家長聯絡 / 家長專區綁定), so opening a student shows the student
-     and 編輯資料 is only for changing something (Patty, 2026-09-03 — the first
-     cut hid the guardians behind the edit button). 學習進度 / 會考覆蓋度 were
-     removed the same day: that analysis lives in 出題台, and a "0" tile here
-     read as a verdict on a child who simply had no graded exam yet.
+     There is still exactly ONE place a student is written: this form (班級's
+     新增學生 hands off here with ?new=1&class=…).
 
      🔑 ROLES ARE ENFORCED BY RLS, NOT BY THIS PAGE — with one exception.
-     A teacher's JWT simply returns no rows for tuition_outstanding_v, meal_ledger
-     or student_notes (their policies are is_owner_admin()), so those sections
-     come back empty without this page deciding anything. The EXCEPTION is
-     CONTACTS: students_select allows teaches_student(), so a teacher CAN read
-     父母電話/LINE (verified with a real JWT). Patty's call (2026-08-18) is that
-     they should not see them — contacting families is front-desk work and this is
-     minors' PII, the same reason the 家長報告 PDF omits guardian contacts. That
-     single hide is done here in code, and is therefore the one thing a UI bug
-     could expose. It is marked at the point of use.
+     A teacher's JWT simply returns no rows for tuition_outstanding_v, meal_ledger,
+     student_notes or parent_student (their policies are is_owner_admin()), so
+     the whole right column is hidden for them rather than shown empty. The
+     EXCEPTION is CONTACTS: students_select allows teaches_student(), so a
+     teacher CAN read 父母電話/LINE (verified with a real JWT). Patty's call
+     (2026-08-18) is that they should not see them — contacting families is
+     front-desk work and this is minors' PII, the same reason the 家長報告 PDF
+     omits guardian contacts. That single hide is done here in code, and is
+     therefore the one thing a UI bug could expose. It is marked at the point
+     of use.
 
      Empty states say "not yet" and render "—", never 0 — a zero here would be a
      false claim (NT$0 未繳 reads as "paid up"). -->
@@ -45,26 +56,57 @@
 body { margin: 0; background: var(--bg); color: var(--ink); line-height: 1.55;
   font-family: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif; }
 .wrap { max-width: 1180px; margin: 0 auto; padding: 16px 16px 56px; }
-.top { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
 h1 { font-size: 18px; margin: 0; }
-.top .msg { margin-left: auto; }
 a { color: var(--brand); }
 .msg { font-size: 13px; color: var(--muted); }
 .msg.err { color: var(--orange); font-weight: 700; }
+.msg.ok { color: var(--ok); font-weight: 700; }
 .empty { color: var(--muted); font-size: 13px; margin: 0; }
 select, input, textarea { font: inherit; padding: 6px 9px; border: 1px solid var(--line);
   border-radius: 8px; background: #fff; color: var(--ink); }
-select:focus, textarea:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
+input:disabled, textarea:disabled { background: #f6f7fb; color: var(--ink); border-color: #eceef4; }
 button { font: inherit; font-weight: 700; border: 0; border-radius: 8px; padding: 7px 15px;
   background: var(--brand); color: #fff; cursor: pointer; }
+button:disabled { background: #dfe3ef; color: #8a90a0; cursor: default; }
+button.ghost { background: #fff; border: 1px solid var(--line); color: var(--ink); }
+button.ghost:hover { border-color: #c9cee0; }
+button.sm { padding: 5px 11px; font-size: 12px; }
+button.quiet { background: transparent; color: var(--orange); font-weight: 400; padding: 0; font-size: 12px; }
+button.quiet:hover { text-decoration: underline; }
 button.danger { background: transparent; border: 0; color: var(--muted);
   padding: 0 4px; font-size: 12px; font-weight: 400; }
 button.danger:hover { color: var(--orange); text-decoration: underline; }
+.chips { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+.chip { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 1px 9px;
+  background: #eef1fc; color: var(--brand); white-space: nowrap; }
+.chip.off { background: #f1f3f8; color: var(--muted); }
+.chip.ok { background: #e6f4ec; color: var(--ok); }
+.chip.warn { background: #fef6da; color: #8a5a00; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 13px 15px; }
+h2 { font-size: 14px; margin: 0 0 9px; display: flex; align-items: baseline; gap: 8px; }
+h2 .side { margin-left: auto; font-size: 12px; font-weight: 400; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font-size: 11px; color: var(--muted); font-weight: 700;
+  padding: 0 6px 5px; border-bottom: 1px solid var(--line); }
+td { padding: 5px 6px; border-bottom: 1px solid #f4f5f9; }
+tr:last-child td { border-bottom: 0; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.due { color: var(--orange); font-weight: 700; }
 
-/* ── browse: grade tabs + the list ───────────────────────────────────────
-   The page used to open on nothing: a search box and a blank canvas, so you
-   had to already know a name to see anyone. Now it opens on a 年級 tab and
-   its students, and the search narrows across every grade as you type. */
+/* ── top bars: one per screen ─────────────────────────────────────────── */
+.top { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+.top .right { margin-left: auto; display: flex; gap: 12px; align-items: center; font-size: 13px;
+  color: var(--muted); flex-wrap: wrap; }
+.top #find { min-width: 240px; }
+.crumb { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px;
+  font-size: 13px; }
+.crumb .right { margin-left: auto; display: flex; gap: 12px; align-items: center; font-size: 13px;
+  color: var(--muted); flex-wrap: wrap; }
+.crumb #jump { min-width: 200px; padding: 4px 9px; font-size: 13px; }
+
+/* ── 名單 ─────────────────────────────────────────────────────────────── */
 .gradetabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
 .gradetabs button { background: #fff; border: 1px solid var(--line); color: var(--ink);
   font-weight: 600; font-size: 13px; padding: 6px 14px; min-width: 72px; }
@@ -84,98 +126,36 @@ button.danger:hover { color: var(--orange); text-decoration: underline; }
 #list tbody tr:hover td { background: #f3f5fc; }
 #list td { padding: 7px 6px; }
 #list .chips { gap: 4px; }
-#list .chip { font-size: 11px; padding: 0 8px; white-space: nowrap; }
-.top .back { display: none; }
-body.viewing .top .back { display: inline; }
+#list .chip { font-size: 11px; padding: 0 8px; }
 @media (max-width: 720px) {
   #list th.sc, #list td.sc { display: none; }
   #list th.no, #list td.no { width: 80px; }
 }
 
-/* ── identity strip: one band, not a card of labelled fields ─────────────── */
-.hdr { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
-  padding: 12px 16px; margin-bottom: 12px; display: flex; align-items: center;
-  gap: 8px 18px; flex-wrap: wrap; }
-.hdr .nm { font-size: 20px; font-weight: 800; }
-.hdr .no { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 14px; }
-.hdr .meta { font-size: 13px; color: var(--muted); }
-.hdr .meta b { color: var(--ink); font-weight: 700; }
-.hdr .edit { margin-left: auto; }
-.hdr .edit button { font-size: 13px; padding: 5px 13px; }
-.chips { display: flex; flex-wrap: wrap; gap: 5px; }
-.chip { font-size: 12px; font-weight: 700; border-radius: 999px; padding: 1px 9px;
-  background: #eef1fc; color: var(--brand); }
-.chip.off { background: #f1f3f8; color: var(--muted); }
-.chip.warn { background: #fef6da; color: #8a5a00; }
+/* ── 學生: identity line (a title, not a second form) ─────────────────── */
+.ident { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 0 0 14px; }
+.ident .nm { font-size: 24px; font-weight: 800; line-height: 1.2; }
+.ident .no { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ident .meta { font-size: 13px; color: var(--muted); }
+.ident .meta b { color: var(--ink); }
 
-/* ── KPI row: the three questions you open this page to answer ───────────── */
-.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px; margin-bottom: 12px; }
-.kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
-  padding: 12px 14px; border-left: 3px solid var(--line); }
-.kpi .lab { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: baseline; }
-.kpi .lab a { margin-left: auto; font-size: 11px; }
-.kpi .v { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums;
-  line-height: 1.25; }
-.kpi .v.none { color: var(--muted); font-weight: 400; font-size: 20px; }
-.kpi .sub { font-size: 12px; color: var(--muted); }
-.kpi.due { border-left-color: var(--orange); } .kpi.due .v { color: var(--orange); }
-.kpi.good { border-left-color: var(--ok); } .kpi.good .v { color: var(--ok); }
-.kpi.info { border-left-color: var(--brand); } .kpi.info .v { color: var(--brand); }
-
-/* ── detail columns ─────────────────────────────────────────────────────── */
-.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.cols { display: grid; grid-template-columns: 7fr 5fr; gap: 14px; align-items: start; }
 @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } }
-.col { display: flex; flex-direction: column; gap: 12px; }
-.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
-  padding: 13px 15px; }
-h2 { font-size: 14px; margin: 0 0 9px; display: flex; align-items: baseline; gap: 8px; }
-h2 .side { margin-left: auto; font-size: 12px; font-weight: 400; }
+.col { display: flex; flex-direction: column; gap: 14px; }
 
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-th { text-align: left; font-size: 11px; color: var(--muted); font-weight: 700;
-  padding: 0 6px 5px; border-bottom: 1px solid var(--line); }
-td { padding: 5px 6px; border-bottom: 1px solid #f4f5f9; }
-tr:last-child td { border-bottom: 0; }
-td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-.due { color: var(--orange); font-weight: 700; }
-.warnbox { margin-top: 8px; font-size: 12px; font-weight: 700; color: #8a5a00;
-  background: #fef6da; border: 1px solid #f0dfa8; border-radius: 8px; padding: 6px 9px; }
-
-.mrow { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
-.mstat { border: 1px solid var(--line); border-radius: 9px; padding: 5px 12px; text-align: center;
-  min-width: 62px; }
-.mstat b { display: block; font-size: 17px; font-variant-numeric: tabular-nums; }
-.mstat span { font-size: 11px; color: var(--muted); }
-
-.note { border-top: 1px solid #f4f5f9; padding: 6px 0; display: flex; gap: 9px;
-  align-items: baseline; }
-.note:first-of-type { border-top: 0; }
-.note .when { font-size: 11px; color: var(--muted); flex: none; width: 74px;
-  font-variant-numeric: tabular-nums; }
-.note .body { flex: 1; font-size: 13px; white-space: pre-wrap; }
-/* ── 編輯表單 — ON THE PAGE, not a popup (Patty, 2026-09-03) ──────────
-   The record is the form: every field sits in a card in the left column and
-   儲存 is a bar under them. Fields are sized to what goes in them and grouped
-   under quiet headings (基本 / 家長聯絡 / 修習班級 / 家長專區綁定). A teacher
-   sees the same cards read-only (inputs disabled, no 儲存 bar). */
-.card .fgroup { margin-bottom: 0; }
-.binds { display: flex; flex-direction: column; gap: 6px; }
-.binds .b {
-  display: flex; align-items: baseline; gap: 10px; padding: 7px 10px;
-  border: 1px solid var(--line); border-radius: 8px; font-size: 13px;
-}
-.binds .b .who { font-weight: 600; }
-.binds .b .line { color: var(--muted); font-size: 12px; }
-.binds .b .off { color: var(--orange); font-size: 12px; font-weight: 600; }
-.binds .b button { margin-left: auto; }
-.bindrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
-.bindout { font-size: 13px; color: var(--muted); }
-.bindout:not(:empty) { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line);
-  border-radius: 8px; background: #fbfcff; }
-.fgroup { margin-bottom: 16px; }
-.fgroup > .legend { font-size: 11px; font-weight: 700; color: var(--muted);
-  letter-spacing: .05em; margin-bottom: 7px; }
+/* ── the record: ONE card, ruled sections, save in the header ─────────── */
+.rec { padding: 0; }
+.rec .rh { display: flex; align-items: center; gap: 10px; padding: 11px 15px;
+  border-bottom: 1px solid var(--line); background: #fbfcff; border-radius: 12px 12px 0 0;
+  position: sticky; top: 0; z-index: 2; }
+.rec .rh b { font-size: 14px; }
+.rec .rh .msg { flex: 1; }
+.rec .grp { padding: 13px 15px; border-bottom: 1px solid var(--line); }
+.rec .grp:last-of-type { border-bottom: 0; }
+.rec .lg { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: .06em;
+  margin-bottom: 8px; }
+.rec .foot { padding: 9px 15px; background: #fbfcff; border-top: 1px solid var(--line);
+  border-radius: 0 0 12px 12px; display: flex; align-items: center; gap: 10px; }
 .fld label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
 .fld input, .fld textarea { width: 100%; }
 .frow { display: grid; gap: 10px 12px; grid-template-columns: 1.3fr 1fr 72px 1.2fr; }
@@ -203,10 +183,8 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .guardian input::placeholder { color: var(--muted); }  /* …but there is no header row here */
 }
 
-/* class picker — four columns by subject (英文 · 數學 · 自然 · 其他), each
-   stacking its classes, so 國一數A/數B sit under one heading instead of
-   scattering across a wrapped row (Patty, 2026-09-02). Pills, so 已選 is
-   legible at a glance, not a row of ticks. */
+/* class picker — four columns by subject (英文 · 數學 · 自然/理化 · 其他), each
+   stacking its classes (Patty, 2026-09-02). Pills, so 已選 is legible at a glance. */
 .subjbox { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px 12px; }
 @media (max-width: 720px) { .subjbox { grid-template-columns: 1fr 1fr; } }
 .subjcol { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
@@ -218,63 +196,89 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .subjbox label:hover { border-color: #c9cee0; }
 .subjbox label:has(input:checked) { border-color: var(--brand); background: #eef1fc;
   color: var(--brand); font-weight: 700; }
+.subjbox label:has(input:disabled) { cursor: default; }
 .subjbox input { accent-color: var(--brand); margin: 0; }
 
-.savebar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
-  position: sticky; bottom: 0; background: var(--surface); box-shadow: 0 -6px 16px rgba(0,0,0,.05); }
-.savebar .push { margin-left: auto; }
-.savebar .msg { flex: 1; }
-.savebar .msg.ok { color: var(--ok); font-weight: 700; }
-input:disabled, textarea:disabled { background: #f6f7fb; color: var(--ink); border-color: #eceef4; }
-.subjbox label:has(input:disabled) { cursor: default; }
-button.ghost { background: #fff; border: 1px solid var(--line); color: var(--ink); }
-button.ghost:hover { border-color: #c9cee0; }
-/* 停用 — present, not shouting. It was a 2px orange outline competing with 儲存
-   for the eye on a form you open to fix a phone number. */
-button.quiet { background: transparent; color: var(--orange); font-weight: 400;
-  padding: 7px 6px; }
-button.quiet:hover { text-decoration: underline; }
+/* ── right column: what's happening ───────────────────────────────────── */
+.k { font-size: 11px; color: var(--muted); display: block; }
+.big { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.25; }
+.big.due { color: var(--orange); } .big.good { color: var(--ok); }
+.big.none { color: var(--muted); font-weight: 400; font-size: 18px; }
+.warnbox { margin-top: 8px; font-size: 12px; font-weight: 700; color: #8a5a00;
+  background: #fef6da; border: 1px solid #f0dfa8; border-radius: 8px; padding: 6px 9px; }
+.binds { display: flex; flex-direction: column; gap: 6px; }
+.binds .b { display: flex; align-items: baseline; gap: 10px; padding: 7px 10px;
+  border: 1px solid var(--line); border-radius: 8px; font-size: 13px; }
+.binds .b .who { font-weight: 600; }
+.binds .b .line { color: var(--muted); font-size: 12px; }
+.binds .b .off { color: var(--orange); font-size: 12px; font-weight: 600; }
+.binds .b button { margin-left: auto; }
+.bindrow { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+.bindout { font-size: 13px; color: var(--muted); }
+.bindout:not(:empty) { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--line);
+  border-radius: 8px; background: #fbfcff; }
 .noteform { display: flex; gap: 7px; align-items: flex-start; margin-bottom: 10px; }
 .noteform textarea { flex: 1; resize: vertical; }
+.note { border-top: 1px solid #f4f5f9; padding: 6px 0; display: flex; gap: 9px;
+  align-items: baseline; }
+.note:first-of-type { border-top: 0; }
+.note .when { font-size: 11px; color: var(--muted); flex: none; width: 74px;
+  font-variant-numeric: tabular-nums; }
+.note .body { flex: 1; font-size: 13px; white-space: pre-wrap; }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="top">
-    <h1>學生總覽</h1>
-    <input id="find" type="search" placeholder="🔍 姓名 / 學號" autocomplete="off"
-      style="min-width:220px">
-    <button type="button" id="btn-new">＋ 新增學生</button>
-    <a href="#" class="back" id="btn-back">← 回名單</a>
-    <span class="msg" id="pickmsg"></span>
-    <span class="msg"><a href="index.html">← 回後台</a>　<a href="classes.html">班級</a>
-      　<span id="who"></span> <a href="#" id="btn-signout">登出</a></span>
+  <!-- ── 名單 ─────────────────────────────────────────────────────────── -->
+  <div id="screen-list">
+    <div class="top">
+      <h1>學生總覽</h1>
+      <input id="find" type="search" placeholder="🔍 姓名 / 學號" autocomplete="off">
+      <button type="button" id="btn-new">＋ 新增學生</button>
+      <span class="msg" id="pickmsg"></span>
+      <span class="right"><a href="index.html">回後台</a><a href="classes.html">班級</a>
+        <span class="who"></span><a href="#" class="signout">登出</a></span>
+    </div>
+    <div class="gradetabs" id="grade-tabs"></div>
+    <div class="card" id="list" hidden>
+      <div class="lhead"><b id="ltitle"></b><span class="msg" id="lhint"></span></div>
+      <div id="lrows"></div>
+    </div>
   </div>
 
-  <div class="gradetabs" id="grade-tabs"></div>
-
-  <div class="card" id="list" hidden>
-    <div class="lhead"><b id="ltitle"></b><span class="msg" id="lhint"></span></div>
-    <div id="lrows"></div>
-  </div>
-
-  <div id="body" hidden>
-    <div class="hdr" id="hdr"></div>
-    <div class="kpis" id="kpis"></div>
+  <!-- ── 學生 ─────────────────────────────────────────────────────────── -->
+  <div id="screen-stu" hidden>
+    <div class="crumb">
+      <a href="#" id="btn-back">← 名單</a>
+      <span class="right">
+        <input id="jump" type="search" placeholder="🔍 跳到其他學生" autocomplete="off">
+        <a href="index.html">回後台</a><span class="who"></span><a href="#" class="signout">登出</a>
+      </span>
+    </div>
+    <div class="ident" id="hdr"></div>
 
     <div class="cols">
-      <div class="col" id="form"></div>
+      <div class="col"><div class="card rec" id="rec"></div></div>
 
       <div class="col" id="side">
-        <div class="card" id="c-tuition" hidden>
-          <h2>學費明細 <span class="side"><a href="tuition.html">收費台 →</a></span></h2>
+        <div class="card" id="c-tuition">
+          <h2>學費 <span class="side"><a href="tuition.html">收費台 →</a></span></h2>
           <div id="tuition"></div>
         </div>
-        <div class="card" id="c-meal" hidden>
-          <h2>餐費明細 <span class="side"><a href="meals.html">餐費台 →</a></span></h2>
+        <div class="card" id="c-meal">
+          <h2>餐費 <span class="side"><a href="meals.html">餐費台 →</a></span></h2>
           <div id="meal"></div>
         </div>
-        <div class="card" id="c-notes" hidden>
+        <div class="card" id="c-binds">
+          <h2>家長專區 <span class="side"><span class="msg">誰能在 LINE 看到這個孩子</span></span></h2>
+          <div id="f-binds" class="binds"></div>
+          <div class="bindrow">
+            <button type="button" class="ghost sm" id="f-bind">產生家長綁定碼</button>
+            <span class="msg">8 碼數字 · 14 天內有效 · 父母各一次</span>
+          </div>
+          <div class="bindout msg" id="f-bindout"></div>
+        </div>
+        <div class="card" id="c-notes">
           <h2>備註 <span class="side"><span class="msg">寫下後不可修改</span></span></h2>
           <div class="noteform">
             <textarea id="noteBody" rows="2" maxlength="2000"
@@ -300,7 +304,6 @@ const GRADE_LABEL = (g) =>
   : g >= 7 && g <= 9 ? "國" + "一二三"[g - 7]
   : g >= 10 && g <= 12 ? "高" + "一二三"[g - 10]
   : (g == null ? "—" : `${g} 年級`);
-
 const SUBJ_ORDER = { 國文: 0, 英文: 1, 數學: 2, 自然: 3 };
 // The picker's four columns. 理化 is its own 科目 in the bank but the same
 // column here; the last column catches whatever else a class is called
@@ -311,31 +314,19 @@ const SUBJ_COLS = [
   ["自然 / 理化", (c) => c.subject === "自然" || c.subject === "理化"],
   ["其他", (c) => !["英文", "數學", "自然", "理化"].includes(c.subject)],
 ];
-let ROLE = null, SID = null, ALL = [], STU = null, CLASSES = [], ENROLL = [], NEW_CLASS = null;
-// The three KPI tiles are filled by three independent async loads, so each one
-// writes its own slot and the row is re-rendered from the collected state —
-// otherwise whichever query returned last would blow away the others.
-let KPI = {};
 
-function kpi(key, o) { KPI[key] = o; renderKpis(); }
-function renderKpis() {
-  const order = ["tuition", "meal"];
-  $("kpis").innerHTML = order.filter((k) => KPI[k]).map((k) => {
-    const o = KPI[k];
-    return `<div class="kpi ${o.tone || ""}"><div class="lab">${esc(o.lab)}` +
-      (o.link ? `<a href="${o.link}">${esc(o.linkText || "→")}</a>` : "") + "</div>" +
-      `<div class="v${o.none ? " none" : ""}">${o.v}</div>` +
-      (o.sub ? `<div class="sub">${esc(o.sub)}</div>` : "") + "</div>";
-  }).join("");
-}
+let ROLE = null, SID = null, ALL = [], STU = null, CLASSES = [], ENROLL = [], NEW_CLASS = null;
+let SEL_GRADE = null;
+const canEdit = () => ROLE === "owner" || ROLE === "admin";
 
 (async () => {
   await window.authGate();
   if (!window.CURRENT_USER_ROLE) return;
   ROLE = window.CURRENT_USER_ROLE;
   const ROLE_LABEL = { owner: "負責人", admin: "主任", teacher: "老師" };
-  $("btn-signout").addEventListener("click", window.signOut);
-  $("who").textContent = `${window.CURRENT_USER.email} · ${ROLE_LABEL[ROLE] || ROLE}`;
+  document.querySelectorAll(".signout").forEach((a) => a.addEventListener("click", window.signOut));
+  document.querySelectorAll(".who").forEach((el) =>
+    el.textContent = `${window.CURRENT_USER.email} · ${ROLE_LABEL[ROLE] || ROLE}`);
 
   // RLS already scopes this: a teacher's list contains only students they teach.
   // Paged, because PostgREST silently caps a bare select at 1000 rows and a
@@ -348,7 +339,7 @@ function renderKpis() {
       .select("student_id, classes(name, subject)").eq("active", true).range(from, to)),
   ]).catch((e) => { $("pickmsg").className = "msg err"; $("pickmsg").textContent = e.message; return [null]; });
   if (!st) return;
-  if (!st.length) { $("pickmsg").textContent = "沒有可檢視的學生。"; return; }
+  if (!st.length && !canEdit()) { $("pickmsg").textContent = "沒有可檢視的學生。"; return; }
 
   ALL = st;
   const classesOf = {};
@@ -361,20 +352,26 @@ function renderKpis() {
     || (a.name || "").localeCompare(b.name || "", "zh-Hant")));
   st.forEach((s) => { s.classes = classesOf[s.id] || []; });
 
-  renderGradeTabs();
   $("find").addEventListener("input", () => showList());
   $("find").addEventListener("keydown", (ev) => {
     // Enter on a single hit opens it; Escape clears the search back to the tab.
     if (ev.key === "Enter") { const m = matches(); if (m.length === 1) load(m[0].id); }
     if (ev.key === "Escape") { $("find").value = ""; showList(); }
   });
+  // 跳到其他學生 — the front desk often looks at two children in one phone
+  // call. It hands the query to the list's search and goes there.
+  $("jump").addEventListener("input", () => {
+    $("find").value = $("jump").value; $("jump").value = "";
+    showList(); $("find").focus();
+  });
   $("btn-back").addEventListener("click", (ev) => { ev.preventDefault(); load(null); });
-  $("noteAdd").onclick = addNote;
   $("btn-new").onclick = () => newStudent();
+  $("btn-new").hidden = !canEdit();
+  $("noteAdd").onclick = addNote;
 
   const q = new URLSearchParams(location.search);
   const qs = q.get("id");
-  if (q.get("new") === "1") { NEW_CLASS = q.get("class"); newStudent(); }
+  if (q.get("new") === "1" && canEdit()) { NEW_CLASS = q.get("class"); newStudent(); }
   else if (qs && st.some((s) => s.id === qs)) {
     SEL_GRADE = st.find((x) => x.id === qs).grade;
     load(qs);
@@ -391,10 +388,9 @@ async function fetchAll(page) {
   }
 }
 
-// ── browse: grade tabs + list ─────────────────────────────────────────────
+/* ── 名單 ──────────────────────────────────────────────────────────────── */
 // Tabs come from the DATA, not a literal (same rule as 班級): a grade with no
 // student has no tab, and the 國小部 appears the moment a 小四 is enrolled.
-let SEL_GRADE = null;
 const gradesPresent = () =>
   [...new Set(ALL.map((s) => s.grade))].sort((a, b) => (a ?? 99) - (b ?? 99));
 
@@ -404,20 +400,20 @@ function renderGradeTabs() {
   const searching = $("find").value.trim() !== "";
   $("grade-tabs").innerHTML = grades.map((g) => {
     const n = ALL.filter((s) => s.grade === g).length;
-    const on = !searching && SEL_GRADE === g && !SID;
+    const on = !searching && SEL_GRADE === g;
     return `<button type="button" data-grade="${g ?? ""}" class="${on ? "on" : ""}">` +
       `${esc(GRADE_LABEL(g))}<span class="n">${n}</span></button>`;
   }).join("");
   $("grade-tabs").querySelectorAll("button").forEach((b) => b.onclick = () => {
     SEL_GRADE = b.dataset.grade === "" ? null : Number(b.dataset.grade);
     $("find").value = "";
-    load(null);
+    showList();
   });
 }
 
 /** The rows the list should show right now: a search wins over the tab and
  *  crosses every grade, since the person typing a name doesn't know which
- *  年級 to look under — that was the whole complaint. */
+ *  年級 to look under. */
 function matches() {
   const v = $("find").value.trim().toLowerCase();
   if (v) return ALL.filter((s) =>
@@ -426,9 +422,9 @@ function matches() {
 }
 
 function showList() {
-  SID = null;
-  document.body.classList.remove("viewing");
-  $("body").hidden = true;
+  SID = null; STU = null;
+  $("screen-stu").hidden = true;
+  $("screen-list").hidden = false;
   $("list").hidden = false;
   try { history.replaceState(null, "", "student.html"); } catch (e) { /* ignore */ }
   renderGradeTabs();
@@ -451,45 +447,51 @@ function showList() {
   $("lrows").querySelectorAll("tr[data-id]").forEach((tr) => tr.onclick = () => load(tr.dataset.id));
 }
 
+/* ── 學生 ──────────────────────────────────────────────────────────────── */
+function showStudentScreen() {
+  $("screen-list").hidden = true;
+  $("screen-stu").hidden = false;
+  window.scrollTo(0, 0);
+}
+
 async function load(id) {
   SID = id || null;
-  KPI = {};
-  $("kpis").innerHTML = "";
   if (!SID) { showList(); return; }
-  $("list").hidden = true;
-  $("body").hidden = false;
-  document.body.classList.add("viewing");
-  renderGradeTabs();
+  showStudentScreen();
+  $("side").hidden = !canEdit();   // RLS returns nothing here for a teacher — hide, don't show empty
+  $("btn-back").textContent = `← ${GRADE_LABEL(SEL_GRADE)}名單`;
   // Cosmetic deep-link update only — never let it abort the data load. (It
   // throws outright under file://, which is how this was noticed.)
   try { history.replaceState(null, "", `student.html?id=${SID}`); } catch (e) { /* ignore */ }
-  $("side").hidden = false;
-  await Promise.all([loadBasic(), loadTuition(), loadMeal(), loadNotes()]);
+  await loadBasic();
+  if (canEdit() && STU) await Promise.all([loadTuition(), loadMeal(), renderBinds(STU), loadNotes()]);
 }
 
-/** 新增學生 — the same inline form, empty, with no side column (nothing to
- *  bill or note until the row exists). One create path for both 班級 and here. */
+/** 新增學生 — the same card, empty, with no right column (nothing to bill or
+ *  note until the row exists). One create path for both 班級 and here. */
 async function newStudent() {
-  SID = null; STU = null; KPI = {};
-  $("kpis").innerHTML = "";
-  $("list").hidden = true;
-  $("body").hidden = false;
+  SID = null; STU = null;
+  showStudentScreen();
   $("side").hidden = true;
-  document.body.classList.add("viewing");
-  renderGradeTabs();
+  $("btn-back").textContent = "← 名單";
   try { history.replaceState(null, "", "student.html?new=1" + (NEW_CLASS ? `&class=${NEW_CLASS}` : "")); } catch (e) { /* ignore */ }
-  $("hdr").innerHTML = '<span class="nm">＋ 新增學生</span>';
+  await loadRefs();
+  const newCls = CLASSES.find((c) => c.id === NEW_CLASS);
+  $("hdr").innerHTML = `<span class="nm">新增學生</span>` +
+    (newCls ? `<span class="meta">${esc(GRADE_LABEL(newCls.grade))} · 從「${esc(newCls.name)}」進來</span>` : "");
   await renderForm(null);
   $("f-name").focus();
 }
 
 async function loadBasic() {
   const { data: s } = await window.sb.from("students")
-    .select("id, full_name, student_no, grade, school, note, active, father_name, father_phone, " +
-            "mother_name, mother_phone, home_phone, other_contact, father_line, mother_line")
+    .select("id, full_name, student_no, grade, school, note, active, updated_at, father_name, " +
+            "father_phone, mother_name, mother_phone, home_phone, other_contact, father_line, mother_line")
     .eq("id", SID).single();
   if (!s) return;
   STU = s;
+  if (s.grade != null) SEL_GRADE = s.grade;
+  $("btn-back").textContent = `← ${GRADE_LABEL(SEL_GRADE)}名單`;
 
   const { data: enr } = await window.sb.from("enrollments")
     .select("active, classes(name)").eq("student_id", SID);
@@ -499,83 +501,12 @@ async function loadBasic() {
 
   $("hdr").innerHTML =
     `<span class="nm">${esc(s.full_name)}</span>` +
-    `<span class="no">${esc(s.student_no)}</span>` +
-    `<span class="meta"><b>${esc(GRADE_LABEL(s.grade))}</b>` +
-    (s.school ? `　${esc(s.school)}` : "") + "</span>" +
-    (s.active ? "" : '<span class="chip warn">已停用</span>') +
-    `<span class="chips">${chips || '<span class="msg">未加入任何班級</span>'}</span>`;
+    `<span class="no">${esc(s.student_no || "")}</span>` +
+    `<span class="meta"><b>${esc(GRADE_LABEL(s.grade))}</b>${s.school ? " · " + esc(s.school) : ""}</span>` +
+    `<span class="chips">${chips}</span>` +
+    (s.active ? '<span class="chip ok">在籍</span>' : '<span class="chip warn">已停用</span>');
 
   await renderForm(s);
-}
-
-async function loadTuition() {
-  if (ROLE === "teacher") { $("c-tuition").hidden = true; return; }
-
-  const { data: rows } = await window.sb.from("tuition_outstanding_v")
-    .select("class_name, term_name, expected, paid, outstanding").eq("student_id", SID);
-  const { data: enr } = await window.sb.from("enrollments")
-    .select("class_id").eq("student_id", SID).eq("active", true);
-
-  if (!rows || !rows.length) {
-    // No priced class at all → "—", never NT$0, which would read as "paid up".
-    kpi("tuition", { lab: "本期未繳", v: "—", none: true, sub: "尚未設定班費",
-                     link: "tuition.html", linkText: "收費台" });
-    $("c-tuition").hidden = true;
-    return;
-  }
-  $("c-tuition").hidden = false;
-  const total = rows.reduce((a, r) => a + Number(r.outstanding || 0), 0);
-  const partial = (enr || []).length > rows.length;
-  kpi("tuition", {
-    lab: "本期未繳", v: total <= 0 ? "已繳清" : money(total),
-    tone: total <= 0 ? "good" : "due",
-    sub: partial ? "⚠ 有班別尚未設定費用" : (rows[0].term_name || ""),
-    link: "tuition.html", linkText: "收費台",
-  });
-
-  let html = '<table><thead><tr><th>班級</th><th class="num">應繳</th>' +
-    '<th class="num">已繳</th><th class="num">未繳</th></tr></thead><tbody>' +
-    rows.map((r) => `<tr><td>${esc(r.class_name)}</td><td class="num">${money(r.expected)}</td>` +
-      `<td class="num">${money(r.paid)}</td>` +
-      `<td class="num${Number(r.outstanding) > 0 ? " due" : ""}">${money(r.outstanding)}</td></tr>`)
-      .join("") + "</tbody></table>";
-  // Same trap as the parent portal: the view INNER JOINs class_fees, so a class
-  // with no fee set vanishes and the total silently understates the bill.
-  if (partial) html += '<div class="warnbox">有班別尚未設定本期費用，上列並非全部應繳項目。</div>';
-  $("tuition").innerHTML = html;
-}
-
-async function loadMeal() {
-  if (ROLE === "teacher") { $("c-meal").hidden = true; return; }
-
-  const { data: all } = await window.sb.from("meal_ledger")
-    .select("kind, amount").eq("student_id", SID).eq("voided", false);
-  if (!all || !all.length) {
-    // No ledger rows is NOT a zero balance — they are simply not on the meal plan.
-    kpi("meal", { lab: "餐費餘額", v: "—", none: true, sub: "尚未有紀錄",
-                  link: "meals.html", linkText: "餐費台" });
-    $("c-meal").hidden = true;
-    return;
-  }
-  const b = all.reduce((a, r) => a + (r.kind === "topup" ? r.amount : -r.amount), 0);
-  kpi("meal", {
-    lab: "餐費餘額", v: b < 0 ? "欠 " + money(-b) : money(b),
-    tone: b < 500 ? "due" : "good",
-    sub: b < 0 ? "已欠款" : b < 500 ? "餘額偏低" : "",
-    link: "meals.html", linkText: "餐費台",
-  });
-
-  $("c-meal").hidden = false;
-  const { data: led } = await window.sb.from("meal_ledger")
-    .select("occurred_on, kind, amount, vendor")
-    .eq("student_id", SID).eq("voided", false)
-    .order("occurred_on", { ascending: false }).limit(10);
-  $("meal").innerHTML =
-    '<table><thead><tr><th>日期</th><th>項目</th><th class="num">金額</th></tr></thead><tbody>' +
-    (led || []).map((r) => `<tr><td>${esc(r.occurred_on)}</td>` +
-      `<td>${r.kind === "topup" ? "預繳" : "便當" + (r.vendor ? `（${esc(r.vendor)}）` : "")}</td>` +
-      `<td class="num">${r.kind === "topup" ? "+" : "−"}${money(r.amount)}</td></tr>`).join("") +
-    "</tbody></table>";
 }
 
 const nul = (v) => { const t = (v ?? "").trim(); return t === "" ? null : t; };
@@ -596,15 +527,14 @@ async function loadRefs() {
   CLASSES = c.data || []; ENROLL = e.data || [];
 }
 
-/** s = the student row, or null to create one. Renders the record as editable
- *  cards in the left column. Owner/主任 edit; a teacher gets the same fields
- *  disabled, minus 家長聯絡 / 家長專區綁定 (see the contacts rule below) and
- *  minus the 儲存 bar — RLS would refuse the write anyway, the UI just says so
- *  by not offering it. */
+/** s = the student row, or null to create one. Renders the record as ONE card:
+ *  基本 / 家長聯絡 / 修習班級 as ruled sections, 儲存 in the header (disabled
+ *  until something changes), 停用學生 as the quiet last line. Owner/主任 edit;
+ *  a teacher gets the same fields disabled, minus 家長聯絡 and the buttons. */
 async function renderForm(s) {
   await loadRefs();
-  const canEdit = ROLE === "owner" || ROLE === "admin";
-  const dis = canEdit ? "" : " disabled";
+  const edit = canEdit();
+  const dis = edit ? "" : " disabled";
   const newCls = s ? null : CLASSES.find((c) => c.id === NEW_CLASS);
   const grade = s ? s.grade : (newCls ? newCls.grade : null);
   const subj = grade != null ? gradeSubjectClasses(grade) : [];
@@ -613,11 +543,20 @@ async function renderForm(s) {
   // 🔑 THE ONE POLICY THIS PAGE ENFORCES IN CODE. RLS would happily hand a
   // teacher 父母電話/LINE for their own students (verified with a real JWT);
   // Patty's call is that it should not. Everything else here is fenced by the DB.
-  const showContacts = canEdit;
+  const showContacts = edit;
+  const updated = s?.updated_at ? `最後更新 ${String(s.updated_at).slice(0, 10)}` : "";
 
-  $("form").innerHTML = `
-    <div class="card">
-      <h2>基本資料</h2>
+  $("rec").innerHTML = `
+    <div class="rh">
+      <b>學生資料</b>
+      <span class="msg" id="f-msg">${edit ? esc(updated) : "唯讀"}</span>
+      ${edit ? (s
+        ? `<button type="button" id="f-save" disabled>儲存</button>`
+        : `<button type="button" class="ghost" id="f-cancel">取消</button>
+           <button type="button" id="f-save">建立學生</button>`) : ""}
+    </div>
+    <div class="grp">
+      <div class="lg">基本</div>
       <div class="frow">
         <div class="fld"><label>姓名</label><input id="f-name"${dis} value="${esc(s?.full_name || "")}"></div>
         <div class="fld"><label>學號</label><input id="f-no"${dis} value="${esc(s?.student_no || "")}"></div>
@@ -627,8 +566,8 @@ async function renderForm(s) {
       <div class="fld" style="margin-top:10px"><label>標註</label><textarea id="f-note"${dis} rows="2"
         placeholder="原校班級、座位…">${esc(s?.note || "")}</textarea></div>
     </div>
-    ${showContacts ? `<div class="card">
-      <h2>家長聯絡</h2>
+    ${showContacts ? `<div class="grp">
+      <div class="lg">家長聯絡</div>
       <div class="guardian">
         <span class="gh"></span><span class="gh">姓名</span><span class="gh">電話</span><span class="gh">LINE ID</span>
         <span class="glabel">父</span>
@@ -650,76 +589,46 @@ async function renderForm(s) {
         <input id="f-other" class="wide" placeholder="阿嬤 0912-…、緊急聯絡…" value="${esc(s?.other_contact || "")}">
       </div>
     </div>` : ""}
-    <div class="card">
-      <h2>修習班級${grade != null ? `（${esc(GRADE_LABEL(grade))}）` : ""}</h2>
+    <div class="grp">
+      <div class="lg">修習班級${grade != null ? `（${esc(GRADE_LABEL(grade))}）` : ""}</div>
       ${subj.length ? `<div class="subjbox">${SUBJ_COLS.map(([head, pick]) => {
         const cs = subj.filter(pick);
         return `<div class="subjcol"><span class="ch">${head}</span>` + (cs.map((c) =>
           `<label><input type="checkbox"${dis} data-subj="${c.id}" ${has.has(c.id) ? "checked" : ""}>${esc(c.name)}</label>`).join("")
           || '<span class="none">—</span>') + "</div>";
       }).join("")}</div>`
-      : `<p class="empty">${grade != null ? "這個年級還沒有開班。" : "先填年級並儲存，再選班級。"}</p>`}
+      : `<p class="empty">${grade != null ? "這個年級還沒有開班。" : "先填年級並建立，再選班級。"}</p>`}
     </div>
-    ${s && showContacts ? `<div class="card">
-      <h2>家長專區綁定</h2>
-      <div id="f-binds" class="binds"><span class="msg">讀取中…</span></div>
-      <div class="bindrow">
-        <button type="button" class="ghost" id="f-bind">產生家長綁定碼</button>
-        <span class="msg">14 天內有效，父母各可使用一次</span>
-      </div>
-      <div class="bindout msg" id="f-bindout"></div>
-    </div>` : ""}
-    ${canEdit ? `<div class="card savebar">
-      ${s ? `<button type="button" class="quiet" id="f-toggle">${s.active ? "停用學生" : "啟用學生"}</button>` : ""}
-      <span class="msg" id="f-msg"></span>
-      ${s ? "" : `<button type="button" class="ghost push" id="f-cancel">取消</button>`}
-      <button type="button" ${s ? 'class="push"' : ""} id="f-save">${s ? "儲存" : "建立學生"}</button>
+    ${edit && s ? `<div class="foot">
+      <button type="button" class="quiet" id="f-toggle">${s.active ? "停用學生" : "重新啟用"}</button>
+      <span class="msg">${s.active ? "名單上會看不到，資料與紀錄都保留" : "已停用 — 名單上看不到這位學生"}</span>
     </div>` : ""}`;
 
-  if (!canEdit) return;
+  if (!edit) return;
   $("f-save").onclick = () => saveStudent(s);
   const fc = $("f-cancel");
   if (fc) fc.onclick = () => load(null);
-  if (s) {
-    renderBinds(s);
-    $("f-toggle").onclick = async () => {
-      if (!confirm(s.active ? `停用 ${s.full_name}？名單上會看不到這位學生。` : `重新啟用 ${s.full_name}？`)) return;
-      const { error } = await window.sb.from("students")
-        .update({ active: !s.active }).eq("id", s.id);
-      if (error) { $("f-msg").className = "msg err"; $("f-msg").textContent = error.message; return; }
-      CLASSES = []; ENROLL = [];
-      location.href = s.active ? "student.html" : `student.html?id=${s.id}`;
-    };
-    // 家長綁定碼 — parent_link_codes (migration 20260806000003). 14 天有效、父母各
-    // 一次 (max_uses 2). 8 DIGITS since 2026-09-02 (Patty's call — readable off a
-    // paper slip); the guess budget is parent_bind()'s 5/h limit, so the
-    // alphabet shrinking is fine but the length must stay 8. Bytes ≥250 are
-    // rejected so `% 10` is uniform — no modulo bias.
-    $("f-bind").onclick = async () => {
-      const digits = [];
-      while (digits.length < 8) {
-        const buf = new Uint8Array(16);
-        crypto.getRandomValues(buf);
-        for (const b of buf) if (b < 250 && digits.length < 8) digits.push(b % 10);
-      }
-      const code = digits.join("");
-      const { error } = await window.sb.from("parent_link_codes")
-        .insert({ code, student_id: s.id });
-      if (error) { $("f-bindout").className = "bindout msg err"; $("f-bindout").textContent = error.message; return; }
-      $("f-bindout").className = "bindout msg";
-      $("f-bindout").innerHTML = `家長綁定碼：<b style="font-size:17px;letter-spacing:.2em">${code.slice(0, 4)} ${code.slice(4)}</b>` +
-        `（14 天內有效，父母各可使用一次）抄給家長 → 官網「家長專區」→ LINE 登入 → 輸入此碼。`;
-    };
-  }
+  // 儲存 lights up on the first change — until then there is nothing to save.
+  if (s) $("rec").addEventListener("input", () => {
+    $("f-save").disabled = false;
+    $("f-msg").className = "msg"; $("f-msg").textContent = "有未儲存的變更";
+  });
+  if (s) $("f-toggle").onclick = async () => {
+    if (!confirm(s.active ? `停用 ${s.full_name}？名單上會看不到這位學生，資料與紀錄都保留。` : `重新啟用 ${s.full_name}？`)) return;
+    const { error } = await window.sb.from("students").update({ active: !s.active }).eq("id", s.id);
+    if (error) { $("f-msg").className = "msg err"; $("f-msg").textContent = error.message; return; }
+    CLASSES = []; ENROLL = [];
+    location.href = s.active ? "student.html" : `student.html?id=${s.id}`;
+  };
 }
 
-/** 家長專區綁定 — who can currently see this student in the LIFF, and the only
- *  way to take that away. Nothing else in the back office shows this: a family
- *  that leaves goes quiet (enrollments.active=false empties every parent view)
- *  but stays BOUND, which privacy-v2 promises is undoable on request. */
+/** 家長專區 — who can currently see this student in the LIFF, and the only way
+ *  to take that away. A family that leaves goes quiet (enrollments.active=false
+ *  empties every parent view) but stays BOUND, which privacy-v2 promises is
+ *  undoable on request. */
 async function renderBinds(s) {
   const box = $("f-binds");
-  if (!box) return;
+  $("f-bindout").className = "bindout msg"; $("f-bindout").textContent = "";
   const { data, error } = await window.sb
     .from("parent_student")
     .select("parent_id, parents(id, full_name, line_display_name, profile_id)")
@@ -727,26 +636,26 @@ async function renderBinds(s) {
   if (error) { box.innerHTML = `<span class="msg err">${esc(error.message)}</span>`; return; }
   const rows = (data || []).filter((r) => r.parents);
   if (!rows.length) {
-    box.innerHTML = `<span class="msg">尚未有家長綁定。按「產生家長綁定碼」發碼給家長。</span>`;
-    return;
+    box.innerHTML = `<span class="msg">尚未有家長綁定。</span>`;
+  } else {
+    // profiles.active is what parent-login re-reads on every login, so it — not
+    // the link — is what "can they still get in" actually means.
+    const pids = rows.map((r) => r.parents.profile_id).filter(Boolean);
+    const { data: profs } = pids.length
+      ? await window.sb.from("profiles").select("id, active").in("id", pids)
+      : { data: [] };
+    const activeOf = new Map((profs || []).map((p) => [p.id, p.active !== false]));
+    box.innerHTML = rows.map((r) => {
+      const p = r.parents;
+      const on = p.profile_id ? activeOf.get(p.profile_id) !== false : true;
+      return `<div class="b" data-pid="${esc(p.id)}">
+        <span class="who">${esc(p.full_name || p.line_display_name || "（未具名家長）")}</span>
+        ${p.line_display_name && p.full_name ? `<span class="line">LINE：${esc(p.line_display_name)}</span>` : ""}
+        ${on ? "" : `<span class="off">帳號已停用</span>`}
+        <button type="button" class="quiet" data-unbind>解除綁定</button>
+      </div>`;
+    }).join("");
   }
-  // profiles.active is what parent-login re-reads on every login, so it — not
-  // the link — is what "can they still get in" actually means.
-  const pids = rows.map((r) => r.parents.profile_id).filter(Boolean);
-  const { data: profs } = pids.length
-    ? await window.sb.from("profiles").select("id, active").in("id", pids)
-    : { data: [] };
-  const activeOf = new Map((profs || []).map((p) => [p.id, p.active !== false]));
-  box.innerHTML = rows.map((r) => {
-    const p = r.parents;
-    const on = p.profile_id ? activeOf.get(p.profile_id) !== false : true;
-    return `<div class="b" data-pid="${esc(p.id)}">
-      <span class="who">${esc(p.full_name || p.line_display_name || "（未具名家長）")}</span>
-      ${p.line_display_name && p.full_name ? `<span class="line">LINE：${esc(p.line_display_name)}</span>` : ""}
-      ${on ? "" : `<span class="off">帳號已停用</span>`}
-      <button type="button" class="quiet" data-unbind>解除綁定</button>
-    </div>`;
-  }).join("");
 
   box.querySelectorAll("[data-unbind]").forEach((btn) => {
     btn.onclick = async () => {
@@ -771,14 +680,88 @@ async function renderBinds(s) {
         $("f-bindout").textContent = "解除失敗：" + (error?.message || data?.error || "unknown");
         return;
       }
+      await renderBinds(s);
       $("f-bindout").className = "bindout msg";
       $("f-bindout").textContent = `已解除「${who}」的綁定。` +
         (data.deactivated ? "這是他的最後一個孩子，帳號已停用。" : "") +
         (data.codes_expired ? `　這位學生已無綁定家長，${data.codes_expired} 組未使用的綁定碼一併失效。` : "") +
         "　同意紀錄保留。";
-      await renderBinds(s);
     };
   });
+
+  // 家長綁定碼 — parent_link_codes (migration 20260806000003). 14 天有效、父母各
+  // 一次 (max_uses 2). 8 DIGITS since 2026-09-02 (Patty's call — readable off a
+  // paper slip); the guess budget is parent_bind()'s 5/h limit, so the
+  // alphabet shrinking is fine but the length must stay 8. Bytes ≥250 are
+  // rejected so `% 10` is uniform — no modulo bias.
+  $("f-bind").onclick = async () => {
+    const digits = [];
+    while (digits.length < 8) {
+      const buf = new Uint8Array(16);
+      crypto.getRandomValues(buf);
+      for (const b of buf) if (b < 250 && digits.length < 8) digits.push(b % 10);
+    }
+    const code = digits.join("");
+    const { error } = await window.sb.from("parent_link_codes")
+      .insert({ code, student_id: s.id });
+    if (error) { $("f-bindout").className = "bindout msg err"; $("f-bindout").textContent = error.message; return; }
+    $("f-bindout").className = "bindout msg";
+    $("f-bindout").innerHTML = `家長綁定碼：<b style="font-size:17px;letter-spacing:.2em">${code.slice(0, 4)} ${code.slice(4)}</b>` +
+      `（14 天內有效，父母各可使用一次）抄給家長 → 官網「家長專區」→ LINE 登入 → 輸入此碼。`;
+  };
+}
+
+async function loadTuition() {
+  const { data: rows } = await window.sb.from("tuition_outstanding_v")
+    .select("class_name, term_name, expected, paid, outstanding").eq("student_id", SID);
+  const { data: enr } = await window.sb.from("enrollments")
+    .select("class_id").eq("student_id", SID).eq("active", true);
+
+  if (!rows || !rows.length) {
+    // No priced class at all → "—", never NT$0, which would read as "paid up".
+    $("tuition").innerHTML = '<span class="k">本期未繳</span><div class="big none">—</div>' +
+      '<span class="msg">尚未設定班費</span>';
+    return;
+  }
+  const total = rows.reduce((a, r) => a + Number(r.outstanding || 0), 0);
+  const partial = (enr || []).length > rows.length;
+  let html = `<span class="k">本期未繳${rows[0].term_name ? " · " + esc(rows[0].term_name) : ""}</span>` +
+    `<div class="big ${total <= 0 ? "good" : "due"}">${total <= 0 ? "已繳清" : money(total)}</div>` +
+    '<table style="margin-top:8px"><thead><tr><th>班級</th><th class="num">應繳</th>' +
+    '<th class="num">已繳</th><th class="num">未繳</th></tr></thead><tbody>' +
+    rows.map((r) => `<tr><td>${esc(r.class_name)}</td><td class="num">${money(r.expected)}</td>` +
+      `<td class="num">${money(r.paid)}</td>` +
+      `<td class="num${Number(r.outstanding) > 0 ? " due" : ""}">${money(r.outstanding)}</td></tr>`)
+      .join("") + "</tbody></table>";
+  // Same trap as the parent portal: the view INNER JOINs class_fees, so a class
+  // with no fee set vanishes and the total silently understates the bill.
+  if (partial) html += '<div class="warnbox">有班別尚未設定本期費用，上列並非全部應繳項目。</div>';
+  $("tuition").innerHTML = html;
+}
+
+async function loadMeal() {
+  const { data: all } = await window.sb.from("meal_ledger")
+    .select("kind, amount").eq("student_id", SID).eq("voided", false);
+  if (!all || !all.length) {
+    // No ledger rows is NOT a zero balance — they are simply not on the meal plan.
+    $("meal").innerHTML = '<span class="k">餘額</span><div class="big none">—</div>' +
+      '<span class="msg">尚未有紀錄</span>';
+    return;
+  }
+  const b = all.reduce((a, r) => a + (r.kind === "topup" ? r.amount : -r.amount), 0);
+  const { data: led } = await window.sb.from("meal_ledger")
+    .select("occurred_on, kind, amount, vendor")
+    .eq("student_id", SID).eq("voided", false)
+    .order("occurred_on", { ascending: false }).limit(10);
+  $("meal").innerHTML =
+    '<span class="k">餘額</span>' +
+    `<div class="big ${b < 500 ? "due" : "good"}">${b < 0 ? "欠 " + money(-b) : money(b)}</div>` +
+    (b < 0 ? '<span class="msg">已欠款</span>' : b < 500 ? '<span class="msg">餘額偏低</span>' : "") +
+    '<table style="margin-top:8px"><thead><tr><th>日期</th><th>項目</th><th class="num">金額</th></tr></thead><tbody>' +
+    (led || []).map((r) => `<tr><td>${esc(r.occurred_on)}</td>` +
+      `<td>${r.kind === "topup" ? "預繳" : "便當" + (r.vendor ? `（${esc(r.vendor)}）` : "")}</td>` +
+      `<td class="num">${r.kind === "topup" ? "+" : "−"}${money(r.amount)}</td></tr>`).join("") +
+    "</tbody></table>";
 }
 
 async function saveStudent(s) {
@@ -795,6 +778,7 @@ async function saveStudent(s) {
   };
   Object.keys(fields).forEach((k) => { if (fields[k] === undefined) delete fields[k]; });
   if (!fields.full_name) { m.className = "msg err"; m.textContent = "請輸入學生姓名"; return; }
+  $("f-save").disabled = true;
   try {
     let id = s ? s.id : null;
     if (s) {
@@ -813,10 +797,11 @@ async function saveStudent(s) {
       .select("id, full_name, student_no, grade, school, active").eq("id", id).single();
     const i = ALL.findIndex((x) => x.id === id);
     if (row && i >= 0) ALL[i] = { ...ALL[i], ...row };
-    await load(id);
+    await loadBasic();
     const fm = $("f-msg");
     if (fm) { fm.className = "msg ok"; fm.textContent = "已儲存 ✓"; }
   } catch (e) {
+    $("f-save").disabled = false;
     m.className = "msg err"; m.textContent = e.message || String(e);
   }
 }
@@ -829,8 +814,6 @@ async function saveStudent(s) {
  *  The box only ever renders the student's OWN grade (gradeSubjectClasses), so
  *  `del` must be scoped to what was rendered. Otherwise saving this form wipes
  *  every cross-grade enrollment — the 國一 who sits 國二數A, the 小六 in 國一英B.
- *  That was unreachable while everyone sat only in their own grade; it stopped
- *  being so on 2026-08-26 when the real 名單 put 9 students across grades.
  *  Consequence: a cross-grade enrollment cannot be REMOVED here either. Silently
  *  losing one is the worse failure. */
 async function syncSubjects(studentId) {
@@ -856,8 +839,6 @@ async function syncSubjects(studentId) {
 }
 
 async function loadNotes() {
-  if (ROLE === "teacher") { $("c-notes").hidden = true; return; }
-  $("c-notes").hidden = false;
   const { data, error } = await window.sb.from("student_notes")
     .select("id, body, created_at").eq("student_id", SID)
     .order("created_at", { ascending: false });
