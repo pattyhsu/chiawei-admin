@@ -193,27 +193,32 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   .guardian input::placeholder { color: var(--muted); }  /* …but there is no header row here */
 }
 
-/* class picker — four columns by subject (英文 · 數學 · 自然/理化 · 其他), each
-   stacking its classes (Patty, 2026-09-02). Pills, so 已選 is legible at a glance. */
+/* class picker — pills either way, so 已選 is legible at a glance.
+   國中 gets four columns by subject (英文 · 數學 · 自然/理化 · 其他), each
+   stacking its classes (Patty, 2026-09-02) — 國三 alone has eight.
+   國小 gets one wrapping row: three classes per grade and no 自然, so the four
+   columns only spread a handful of pills over a lot of white space and squeeze
+   「國小低中年級英文」 into a wrap (Patty, 2026-09-04). */
 .subjbox { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px 12px; }
 @media (max-width: 720px) { .subjbox { grid-template-columns: 1fr 1fr; } }
+.subjrow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .subjcol { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .subjcol .ch { font-size: 11px; color: var(--muted); font-weight: 700; margin-bottom: 1px; }
-.subjcol .none { font-size: 12px; color: var(--muted); }
+.pills .none { font-size: 12px; color: var(--muted); }
 /* the grade a class is filed under, shown only when it is not the student's.
    nowrap so 「小四」 never breaks into a two-character stack beside a name that
-   is already wrapping (國小低中年級英文 in a quarter-width column). */
-.subjbox .g { font-size: 11px; font-weight: 700; color: var(--muted);
+   is already wrapping (國小低中年級英文 in a quarter-width 國中 column). */
+.pills .g { font-size: 11px; font-weight: 700; color: var(--muted);
   white-space: nowrap; margin-left: 1px; }
-.subjbox label:has(input:checked) .g { color: var(--brand); }
-.subjbox label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
+.pills label:has(input:checked) .g { color: var(--brand); }
+.pills label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
   border: 1px solid var(--line); border-radius: 999px; padding: 4px 13px 4px 10px;
   background: #fff; cursor: pointer; }
-.subjbox label:hover { border-color: #c9cee0; }
-.subjbox label:has(input:checked) { border-color: var(--brand); background: #eef1fc;
+.pills label:hover { border-color: #c9cee0; }
+.pills label:has(input:checked) { border-color: var(--brand); background: #eef1fc;
   color: var(--brand); font-weight: 700; }
-.subjbox label:has(input:disabled) { cursor: default; }
-.subjbox input { accent-color: var(--brand); margin: 0; }
+.pills label:has(input:disabled) { cursor: default; }
+.pills input { accent-color: var(--brand); margin: 0; }
 
 /* ── right column: what's happening ───────────────────────────────────── */
 .k { font-size: 11px; color: var(--muted); display: block; }
@@ -655,6 +660,14 @@ function renderClasses(grade, enrolled, edit) {
   const subj = grade != null ? pickerClasses(grade, keep, SHOW_ALL_GRADES) : [];
   const offGrade = grade != null
     && CLASSES.some((c) => c.active && c.subject && c.grade !== grade);
+  // 國小 is a single wrapping row — nine classes across the whole grade, and no
+  // 自然, so the subject columns had nothing to organise. 國中 keeps them.
+  const flat = grade != null && grade <= 6;
+  const pill = (c) =>
+    `<label><input type="checkbox"${dis} data-subj="${c.id}"${
+      ticked.has(c.id) ? " checked" : ""}>${esc(c.name)}${
+      c.grade !== grade ? `<span class="g">〔${esc(GRADE_LABEL(c.grade))}〕</span>` : ""
+    }</label>`;
 
   box.innerHTML =
     `<div class="lg${edit && offGrade ? " lgrow" : ""}">` +
@@ -664,14 +677,13 @@ function renderClasses(grade, enrolled, edit) {
           SHOW_ALL_GRADES ? "只看本年級" : "顯示其他年級"}</button>`
       : "") + "</div>" +
     (subj.length
-      ? `<div class="subjbox">${SUBJ_COLS.map(([head, pick]) => {
-          const cs = subj.filter(pick);
-          return `<div class="subjcol"><span class="ch">${head}</span>` + (cs.map((c) =>
-            `<label><input type="checkbox"${dis} data-subj="${c.id}"${
-              ticked.has(c.id) ? " checked" : ""}>${esc(c.name)}${
-              c.grade !== grade ? `<span class="g">〔${esc(GRADE_LABEL(c.grade))}〕</span>` : ""
-            }</label>`).join("") || '<span class="none">—</span>') + "</div>";
-        }).join("")}</div>`
+      ? (flat
+        ? `<div class="pills subjrow">${subj.map(pill).join("")}</div>`
+        : `<div class="pills subjbox">${SUBJ_COLS.map(([head, pick]) => {
+            const cs = subj.filter(pick);
+            return `<div class="subjcol"><span class="ch">${head}</span>`
+              + (cs.map(pill).join("") || '<span class="none">—</span>') + "</div>";
+          }).join("")}</div>`)
       : `<p class="empty">${grade != null
           ? "這個年級還沒有開班" + (edit && offGrade ? "，按「顯示其他年級」挑其他班。" : "。")
           : "先填年級並建立，再選班級。"}</p>`);
