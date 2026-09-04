@@ -74,6 +74,8 @@ button.ghost:hover { border-color: #c9cee0; }
 button.sm { padding: 5px 11px; font-size: 12px; }
 button.quiet { background: transparent; color: var(--orange); font-weight: 400; padding: 0; font-size: 12px; }
 button.quiet:hover { text-decoration: underline; }
+button.link { background: transparent; color: var(--brand); font-weight: 400; padding: 0; font-size: 12px; }
+button.link:hover { text-decoration: underline; }
 button.danger { background: transparent; border: 0; color: var(--muted);
   padding: 0 4px; font-size: 12px; font-weight: 400; }
 button.danger:hover { color: var(--orange); text-decoration: underline; }
@@ -157,6 +159,7 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .rec .grp:last-of-type { border-bottom: 0; }
 .rec .lg { font-size: 11px; font-weight: 700; color: var(--muted); letter-spacing: .06em;
   margin-bottom: 8px; }
+.rec .lg.lgrow { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .rec .foot { padding: 9px 15px; background: #fbfcff; border-top: 1px solid var(--line);
   border-radius: 0 0 12px 12px; display: flex; align-items: center; gap: 10px; }
 .fld label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
@@ -197,6 +200,12 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .subjcol { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .subjcol .ch { font-size: 11px; color: var(--muted); font-weight: 700; margin-bottom: 1px; }
 .subjcol .none { font-size: 12px; color: var(--muted); }
+/* the grade a class is filed under, shown only when it is not the student's.
+   nowrap so 「小四」 never breaks into a two-character stack beside a name that
+   is already wrapping (國小低中年級英文 in a quarter-width column). */
+.subjbox .g { font-size: 11px; font-weight: 700; color: var(--muted);
+  white-space: nowrap; margin-left: 1px; }
+.subjbox label:has(input:checked) .g { color: var(--brand); }
 .subjbox label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
   border: 1px solid var(--line); border-radius: 999px; padding: 4px 13px 4px 10px;
   background: #fff; cursor: pointer; }
@@ -323,7 +332,7 @@ const SUBJ_COLS = [
 ];
 
 let ROLE = null, SID = null, ALL = [], STU = null, CLASSES = [], ENROLL = [], NEW_CLASS = null;
-let SEL_GRADE = null;
+let SEL_GRADE = null, SHOW_ALL_GRADES = false;
 const canEdit = () => ROLE === "owner" || ROLE === "admin";
 
 (async () => {
@@ -518,9 +527,20 @@ async function loadBasic() {
 
 const nul = (v) => { const t = (v ?? "").trim(); return t === "" ? null : t; };
 const num = (v) => { const t = (v ?? "").trim(); return t === "" ? null : Number(t); };
-const gradeSubjectClasses = (grade) => CLASSES
-  .filter((c) => c.active && c.grade === grade && c.subject)
-  .sort((a, b) => ((SUBJ_ORDER[a.subject] ?? 9) - (SUBJ_ORDER[b.subject] ?? 9))
+/** A class's `grade` is the bucket it is FILED under, not a fence on who sits in
+ *  it. 國小低中年級數學/英文/課輔 are filed at 4 but serve 小一–小四, and 15
+ *  students are placed a grade up (小六 in a 國一 class, 國二 in 國三). Filtering
+ *  the picker on `c.grade === student.grade` therefore hid real enrolments — the
+ *  chips said 三班, the picker said 「這個年級還沒有開班」— and, being unrendered,
+ *  they could not be taken away here either. So: own grade + everything the
+ *  student is already in, and 顯示其他年級 opens the rest, which is the only way
+ *  to reach a class for 小一–小三 and 幼大, whose grades have no class at all. */
+const pickerClasses = (grade, keep, allGrades) => CLASSES
+  .filter((c) => c.active && c.subject
+    && (allGrades || c.grade === grade || keep.has(c.id)))
+  .sort((a, b) => ((a.grade === grade ? 0 : 1) - (b.grade === grade ? 0 : 1))
+    || ((a.grade ?? 99) - (b.grade ?? 99))
+    || ((SUBJ_ORDER[a.subject] ?? 9) - (SUBJ_ORDER[b.subject] ?? 9))
     || (a.name || "").localeCompare(b.name || "", "zh-Hant"));
 const studentClassIds = (sid) => new Set(ENROLL
   .filter((e) => e.student_id === sid && e.active).map((e) => e.class_id));
@@ -544,8 +564,8 @@ async function renderForm(s) {
   const dis = edit ? "" : " disabled";
   const newCls = s ? null : CLASSES.find((c) => c.id === NEW_CLASS);
   const grade = s ? s.grade : (newCls ? newCls.grade : null);
-  const subj = grade != null ? gradeSubjectClasses(grade) : [];
   const has = s ? studentClassIds(s.id) : new Set(newCls ? [newCls.id] : []);
+  SHOW_ALL_GRADES = false;
 
   // 🔑 THE ONE POLICY THIS PAGE ENFORCES IN CODE. RLS would happily hand a
   // teacher 父母電話/LINE for their own students (verified with a real JWT);
@@ -590,20 +610,13 @@ async function renderForm(s) {
         <input id="f-other" class="other" placeholder="其他聯絡人，例：阿嬤 0912-…" value="${esc(s?.other_contact || "")}">
       </div>
     </div>` : ""}
-    <div class="grp">
-      <div class="lg">修習班級${grade != null ? `（${esc(GRADE_LABEL(grade))}）` : ""}</div>
-      ${subj.length ? `<div class="subjbox">${SUBJ_COLS.map(([head, pick]) => {
-        const cs = subj.filter(pick);
-        return `<div class="subjcol"><span class="ch">${head}</span>` + (cs.map((c) =>
-          `<label><input type="checkbox"${dis} data-subj="${c.id}" ${has.has(c.id) ? "checked" : ""}>${esc(c.name)}</label>`).join("")
-          || '<span class="none">—</span>') + "</div>";
-      }).join("")}</div>`
-      : `<p class="empty">${grade != null ? "這個年級還沒有開班。" : "先填年級並建立，再選班級。"}</p>`}
-    </div>
+    <div class="grp" id="f-classes"></div>
     ${edit && s ? `<div class="foot">
       <button type="button" class="quiet" id="f-toggle">${s.active ? "停用學生" : "重新啟用"}</button>
       <span class="msg">${s.active ? "名單上會看不到，資料與紀錄都保留" : "已停用 — 名單上看不到這位學生"}</span>
     </div>` : ""}`;
+
+  renderClasses(grade, has, edit);
 
   if (!edit) return;
   $("f-save").onclick = () => saveStudent(s);
@@ -621,6 +634,52 @@ async function renderForm(s) {
     if (error) { $("f-bar").hidden = false; $("f-msg").className = "msg err"; $("f-msg").textContent = error.message; return; }
     CLASSES = []; ENROLL = [];
     location.href = s.active ? "student.html" : `student.html?id=${s.id}`;
+  };
+}
+
+/** The 修習班級 section. It re-renders ITSELF on 顯示其他年級 rather than going
+ *  back through renderForm, so a half-typed 電話 two sections up survives the
+ *  toggle — and it reads the ticks back off the DOM, so a tick made before the
+ *  toggle survives it too.
+ *  `enrolled` is the DB truth; anything in it renders whatever its grade, which
+ *  is also what keeps syncSubjects able to remove it (that only deletes classes
+ *  it actually rendered). */
+function renderClasses(grade, enrolled, edit) {
+  const box = $("f-classes");
+  const dis = edit ? "" : " disabled";
+  const drawn = [...box.querySelectorAll("[data-subj]")];
+  const ticked = drawn.length
+    ? new Set(drawn.filter((b) => b.checked).map((b) => b.dataset.subj))
+    : new Set(enrolled);
+  const keep = new Set([...enrolled, ...ticked]);
+  const subj = grade != null ? pickerClasses(grade, keep, SHOW_ALL_GRADES) : [];
+  const offGrade = grade != null
+    && CLASSES.some((c) => c.active && c.subject && c.grade !== grade);
+
+  box.innerHTML =
+    `<div class="lg${edit && offGrade ? " lgrow" : ""}">` +
+    `<span>修習班級${grade != null ? `（${esc(GRADE_LABEL(grade))}）` : ""}</span>` +
+    (edit && offGrade
+      ? `<button type="button" class="link" id="f-allgrades">${
+          SHOW_ALL_GRADES ? "只看本年級" : "顯示其他年級"}</button>`
+      : "") + "</div>" +
+    (subj.length
+      ? `<div class="subjbox">${SUBJ_COLS.map(([head, pick]) => {
+          const cs = subj.filter(pick);
+          return `<div class="subjcol"><span class="ch">${head}</span>` + (cs.map((c) =>
+            `<label><input type="checkbox"${dis} data-subj="${c.id}"${
+              ticked.has(c.id) ? " checked" : ""}>${esc(c.name)}${
+              c.grade !== grade ? `<span class="g">〔${esc(GRADE_LABEL(c.grade))}〕</span>` : ""
+            }</label>`).join("") || '<span class="none">—</span>') + "</div>";
+        }).join("")}</div>`
+      : `<p class="empty">${grade != null
+          ? "這個年級還沒有開班" + (edit && offGrade ? "，按「顯示其他年級」挑其他班。" : "。")
+          : "先填年級並建立，再選班級。"}</p>`);
+
+  const all = $("f-allgrades");
+  if (all) all.onclick = () => {
+    SHOW_ALL_GRADES = !SHOW_ALL_GRADES;
+    renderClasses(grade, enrolled, edit);
   };
 }
 
@@ -817,11 +876,11 @@ async function saveStudent(s) {
  *  everything — bail instead. Unchecking every rendered box still unenrolls;
  *  that one is deliberate.
  *
- *  The box only ever renders the student's OWN grade (gradeSubjectClasses), so
- *  `del` must be scoped to what was rendered. Otherwise saving this form wipes
- *  every cross-grade enrollment — the 國一 who sits 國二數A, the 小六 in 國一英B.
- *  Consequence: a cross-grade enrollment cannot be REMOVED here either. Silently
- *  losing one is the worse failure. */
+ *  `del` is scoped to what was rendered, so an enrollment the picker did not
+ *  draw is never wiped by a save. Cross-grade ones now DO draw (pickerClasses
+ *  keeps every class the student is in), so 國二數A on a 國一 is both visible and
+ *  removable; what the guard still covers is an enrollment in a class that has
+ *  since been 停用 or lost its 科目 — not offered here, so not deleted here. */
 async function syncSubjects(studentId) {
   const boxes = [...document.querySelectorAll("[data-subj]")];
   if (!boxes.length) return;
