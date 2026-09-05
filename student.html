@@ -205,12 +205,6 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .subjcol { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .subjcol .ch { font-size: 11px; color: var(--muted); font-weight: 700; margin-bottom: 1px; }
 .pills .none { font-size: 12px; color: var(--muted); }
-/* the grade a class is filed under, shown only when it is not the student's.
-   nowrap so 「小四」 never breaks into a two-character stack beside a name that
-   is already wrapping (國小低中年級英文 in a quarter-width 國中 column). */
-.pills .g { font-size: 11px; font-weight: 700; color: var(--muted);
-  white-space: nowrap; margin-left: 1px; }
-.pills label:has(input:checked) .g { color: var(--brand); }
 .pills label { display: inline-flex; align-items: center; gap: 6px; font-size: 13px;
   border: 1px solid var(--line); border-radius: 999px; padding: 4px 13px 4px 10px;
   background: #fff; cursor: pointer; }
@@ -663,11 +657,12 @@ function renderClasses(grade, enrolled, edit) {
   // 國小 is a single wrapping row — nine classes across the whole grade, and no
   // 自然, so the subject columns had nothing to organise. 國中 keeps them.
   const flat = grade != null && grade <= 6;
+  // Just the class name, exactly as the chips beside 姓名 read it. No grade
+  // badge: every name already carries its own grade (小五數學, 國一英A) and the
+  // three 國小低中年級* say what they are (Patty, 2026-09-05).
   const pill = (c) =>
     `<label><input type="checkbox"${dis} data-subj="${c.id}"${
-      ticked.has(c.id) ? " checked" : ""}>${esc(c.name)}${
-      c.grade !== grade ? `<span class="g">〔${esc(GRADE_LABEL(c.grade))}〕</span>` : ""
-    }</label>`;
+      ticked.has(c.id) ? " checked" : ""}>${esc(c.name)}</label>`;
 
   box.innerHTML =
     `<div class="lg${edit && offGrade ? " lgrow" : ""}">` +
